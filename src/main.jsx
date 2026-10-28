@@ -309,19 +309,11 @@ function App() {
   const [newProfileName, setNewProfileName] = useState('');
 
   // --- Trade Data per Profile ---
-  const [trades, setTrades] = useState(() => {
-    const saved = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
-    if (saved) return JSON.parse(saved).filter((trade) => !isDemoTrade(trade));
-    return [];
-  });
+  const [trades, setTrades] = useState([]);
   const [tradesProfileId, setTradesProfileId] = useState(activeProfileId);
   const [topDownState, setTopDownState] = useState(() => {
     const profileId = localStorage.getItem('tradelog_active_profile') || 'default';
-    try {
-      return { profileId, data: normalizeTopDownData(JSON.parse(localStorage.getItem(`tradelog_topdown_${profileId}`) || '{}')) };
-    } catch {
-      return { profileId, data: {} };
-    }
+    return { profileId, data: {} };
   });
   const [topDownStorageError, setTopDownStorageError] = useState('');
   const [topDownSelectedDate, setTopDownSelectedDate] = useState(getLocalDateString);
@@ -385,23 +377,15 @@ function App() {
       setTradesProfileId(activeProfileId);
       return;
     }
-    const saved = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
-    if (saved) {
-      const storedTrades = JSON.parse(saved);
-      const remainingTrades = storedTrades.filter((trade) => !isDemoTrade(trade));
-      if (remainingTrades.length !== storedTrades.length) localStorage.setItem(`tradelog_trades_${activeProfileId}`, JSON.stringify(remainingTrades));
-      setTrades(remainingTrades);
-    } else {
-      setTrades([]);
-    }
+    setTrades([]);
     setTradesProfileId(activeProfileId);
   }, [activeProfileId, session?.user?.id]);
 
   // Save trades specific to current profile
   useEffect(() => {
-    if (tradesProfileId !== activeProfileId) return;
+    if (!session?.user?.id || tradesProfileId !== activeProfileId) return;
     localStorage.setItem(`tradelog_trades_${activeProfileId}`, JSON.stringify(trades));
-  }, [trades, activeProfileId, tradesProfileId]);
+  }, [trades, activeProfileId, tradesProfileId, session?.user?.id]);
 
   // Load and merge this profile's rows through the signed-in user's RLS policies.
   useEffect(() => {
@@ -485,22 +469,32 @@ function App() {
 
   useEffect(() => {
     try {
-      const saved = normalizeTopDownData(JSON.parse(localStorage.getItem(`tradelog_topdown_${activeProfileId}`) || '{}'));
+      if (!session?.user?.id) {
+        setTopDownState({ profileId: activeProfileId, data: {} });
+        return;
+      }
+      const userTopDownKey = `tradelog_topdown_${session.user.id}_${activeProfileId}`;
+      const savedText = localStorage.getItem(userTopDownKey) || localStorage.getItem(`tradelog_topdown_${activeProfileId}`) || '{}';
+      const saved = normalizeTopDownData(JSON.parse(savedText));
+      if (!localStorage.getItem(userTopDownKey) && saved.cards?.length) {
+        localStorage.setItem(userTopDownKey, JSON.stringify(saved));
+        localStorage.removeItem(`tradelog_topdown_${activeProfileId}`);
+      }
       setTopDownState({ profileId: activeProfileId, data: saved });
     } catch {
       setTopDownState({ profileId: activeProfileId, data: {} });
     }
-  }, [activeProfileId]);
+  }, [activeProfileId, session?.user?.id]);
 
   useEffect(() => {
-    if (topDownState.profileId !== activeProfileId) return;
+    if (!session?.user?.id || topDownState.profileId !== activeProfileId) return;
     try {
-      localStorage.setItem(`tradelog_topdown_${activeProfileId}`, JSON.stringify(topDownState.data));
+      localStorage.setItem(`tradelog_topdown_${session.user.id}_${activeProfileId}`, JSON.stringify(topDownState.data));
       setTopDownStorageError('');
     } catch {
       setTopDownStorageError('Could not save this screenshot. Try a smaller image or remove an older one.');
     }
-  }, [topDownState, activeProfileId]);
+  }, [topDownState, activeProfileId, session?.user?.id]);
 
   // Profile Actions
   const handleCreateProfile = (e) => {
@@ -1050,11 +1044,29 @@ function App() {
   };
 
   const handleAuthSignOut = async () => {
+    const userId = session?.user?.id;
+    if (userId) {
+      const tradeBackupKey = `tradelog_trades_local_backup_${userId}_${activeProfileId}`;
+      const savedBackup = JSON.parse(localStorage.getItem(tradeBackupKey) || '[]');
+      const savedProfileTrades = JSON.parse(localStorage.getItem(`tradelog_trades_${activeProfileId}`) || '[]');
+      const tradesById = new Map();
+      [...savedBackup, ...savedProfileTrades, ...trades].filter((trade) => !isDemoTrade(trade)).forEach((trade) => {
+        tradesById.set(String(trade._localTradeId || trade.id), trade);
+      });
+      localStorage.setItem(tradeBackupKey, JSON.stringify([...tradesById.values()]));
+      localStorage.setItem(`tradelog_topdown_${userId}_${activeProfileId}`, JSON.stringify(topDownState.data));
+    }
     const { error } = await signOut();
     if (error) {
       showAuthError(error);
       setIsAuthModalOpen(true);
+      return;
     }
+    localStorage.removeItem(`tradelog_trades_${activeProfileId}`);
+    localStorage.removeItem(`tradelog_topdown_${activeProfileId}`);
+    setTrades([]);
+    setTopDownState({ profileId: activeProfileId, data: {} });
+    setSession(null);
   };
 
   const handleImportLocalTrades = async () => {
