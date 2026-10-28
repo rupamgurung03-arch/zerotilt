@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { supabase, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut, isSupabaseConfigured } from './supabase';
+import { supabase, signInWithEmail, signUpWithEmail, signOut, isSupabaseConfigured } from './supabase';
 import './styles.css';
 
 const PSYCHOLOGY_OPTIONS = [
@@ -27,43 +27,6 @@ const INSTRUMENT_PRESETS = [
 
 const DEFAULT_PROFILES = [
   { id: 'default', name: 'Main Account' },
-];
-
-const INITIAL_TRADES = [
-  {
-    id: '1',
-    date: '2026-10-27',
-    time: '19:42',
-    instrument: 'NQ',
-    direction: 'Long',
-    setup: '15m S/R',
-    entry: '20150',
-    stopLoss: '20100',
-    takeProfit: '20300',
-    exit: '20290',
-    risk: '100',
-    resultR: 2.8,
-    psychology: ['Disciplined', 'Patient'],
-    screenshotUrl: '',
-    notes: 'Clean bounce off 15m S/R zone. Held to TP target.',
-  },
-  {
-    id: '2',
-    date: '2026-10-26',
-    time: '21:15',
-    instrument: 'NQ',
-    direction: 'Short',
-    setup: '15m S/R',
-    entry: '20200',
-    stopLoss: '20250',
-    takeProfit: '20050',
-    exit: '20095',
-    risk: '100',
-    resultR: 2.1,
-    psychology: ['Disciplined'],
-    screenshotUrl: '',
-    notes: 'Rejection at key resistance.',
-  },
 ];
 
 const EMPTY_FORM = {
@@ -132,6 +95,14 @@ function splitStoredTradeNotes(value = '') {
   } catch {
     return { notes: value, metadata: null };
   }
+}
+
+function isDemoTrade(trade) {
+  const notes = String(trade?.notes || '').trim();
+  if (/^demo\s*:/i.test(notes)) return true;
+  const localId = String(trade?._localTradeId || trade?.id || '');
+  return (localId === '1' && trade?.date === '2026-10-27' && trade?.instrument === 'NQ' && notes === 'Clean bounce off 15m S/R zone. Held to TP target.')
+    || (localId === '2' && trade?.date === '2026-10-26' && trade?.instrument === 'NQ' && notes === 'Rejection at key resistance.');
 }
 
 function journalTradeToDatabaseRow(trade, userId, profileId) {
@@ -340,8 +311,7 @@ function App() {
   // --- Trade Data per Profile ---
   const [trades, setTrades] = useState(() => {
     const saved = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
-    if (saved) return JSON.parse(saved);
-    if (activeProfileId === 'default') return INITIAL_TRADES;
+    if (saved) return JSON.parse(saved).filter((trade) => !isDemoTrade(trade));
     return [];
   });
   const [tradesProfileId, setTradesProfileId] = useState(activeProfileId);
@@ -417,9 +387,10 @@ function App() {
     }
     const saved = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
     if (saved) {
-      setTrades(JSON.parse(saved));
-    } else if (activeProfileId === 'default') {
-      setTrades(INITIAL_TRADES);
+      const storedTrades = JSON.parse(saved);
+      const remainingTrades = storedTrades.filter((trade) => !isDemoTrade(trade));
+      if (remainingTrades.length !== storedTrades.length) localStorage.setItem(`tradelog_trades_${activeProfileId}`, JSON.stringify(remainingTrades));
+      setTrades(remainingTrades);
     } else {
       setTrades([]);
     }
@@ -452,8 +423,14 @@ function App() {
       try {
         const localText = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
         const localBackupKey = `tradelog_trades_local_backup_${userId}_${activeProfileId}`;
-        const currentLocalTrades = localText ? JSON.parse(localText) : (activeProfileId === 'default' ? INITIAL_TRADES : []);
-        const backupLocalTrades = JSON.parse(localStorage.getItem(localBackupKey) || '[]');
+        const storedLocalTrades = localText ? JSON.parse(localText) : [];
+        const storedBackupTrades = JSON.parse(localStorage.getItem(localBackupKey) || '[]');
+        const localArray = Array.isArray(storedLocalTrades) ? storedLocalTrades : [];
+        const backupArray = Array.isArray(storedBackupTrades) ? storedBackupTrades : [];
+        const currentLocalTrades = localArray.filter((trade) => !isDemoTrade(trade));
+        const backupLocalTrades = backupArray.filter((trade) => !isDemoTrade(trade));
+        if (currentLocalTrades.length !== localArray.length) localStorage.setItem(`tradelog_trades_${activeProfileId}`, JSON.stringify(currentLocalTrades));
+        if (backupLocalTrades.length !== backupArray.length) localStorage.setItem(localBackupKey, JSON.stringify(backupLocalTrades));
         const localById = new Map();
         [...(Array.isArray(currentLocalTrades) ? currentLocalTrades : []), ...(Array.isArray(backupLocalTrades) ? backupLocalTrades : [])]
           .forEach((trade) => localById.set(String(trade._localTradeId || trade.id), trade));
@@ -467,7 +444,16 @@ function App() {
         if (error) throw error;
         if (cancelled) return;
 
-        const allUserTrades = (data || []).map(databaseRowToJournalTrade);
+        const demoRows = (data || []).filter((row) => isDemoTrade(databaseRowToJournalTrade(row)));
+        if (demoRows.length) {
+          const { error: deleteDemoError } = await supabase
+            .from('trades')
+            .delete()
+            .eq('user_id', userId)
+            .in('id', demoRows.map((row) => row.id));
+          if (deleteDemoError) throw deleteDemoError;
+        }
+        const allUserTrades = (data || []).filter((row) => !demoRows.some((demoRow) => demoRow.id === row.id)).map(databaseRowToJournalTrade);
         const cloudTrades = allUserTrades.filter((trade) => trade._profileId === activeProfileId);
         const cloudLocalIds = new Set(cloudTrades.map((trade) => String(trade._localTradeId || trade.id)));
         const localOnlyTrades = localTrades.filter((trade) => !cloudLocalIds.has(String(trade._localTradeId || trade.id)));
@@ -1063,21 +1049,6 @@ function App() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setAuthError('');
-    setAuthNotice('');
-    try {
-      const { error } = await signInWithGoogle();
-      if (error) {
-        showAuthError(error);
-        setIsAuthModalOpen(true);
-      }
-    } catch (error) {
-      showAuthError(error);
-      setIsAuthModalOpen(true);
-    }
-  };
-
   const handleAuthSignOut = async () => {
     const { error } = await signOut();
     if (error) {
@@ -1510,15 +1481,6 @@ function App() {
             ) : (
               <div className="auth-header-area">
                 <button type="button" className="auth-header-button" onClick={() => openAuthModal('signin')}>Email sign in</button>
-                <button type="button" className="google-auth-button" onClick={handleGoogleSignIn}>
-                  <svg width="15" height="15" viewBox="0 0 18 18" aria-hidden="true">
-                    <path fill="currentColor" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/>
-                    <path fill="currentColor" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-                    <path fill="currentColor" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
-                    <path fill="currentColor" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
-                  </svg>
-                  Google
-                </button>
               </div>
             )}
 
@@ -2548,10 +2510,6 @@ function App() {
               </button>
             </form>
 
-            <div className="auth-divider"><span>or</span></div>
-            <button className="google-auth-button auth-modal-google" type="button" onClick={handleGoogleSignIn} disabled={authBusy || !isSupabaseConfigured}>
-              <span aria-hidden="true">G</span> Continue with Google
-            </button>
             {authMode === 'signup' && <p className="auth-confirmation-note">If email confirmation is enabled in Supabase, we’ll ask you to confirm your address before signing in.</p>}
           </section>
         </div>

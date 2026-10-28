@@ -11,17 +11,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey || 'missing-pu
 
 const missingConfigError = () => new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the app build environment.')
 
-// Sign in with Google
-export async function signInWithGoogle() {
-  if (!isSupabaseConfigured) return { error: missingConfigError() }
-  return supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: window.location.origin,
-    }
-  })
-}
-
 // Email Sign Up
 export async function signUpWithEmail(email, password) {
   if (!isSupabaseConfigured) return { data: null, error: missingConfigError() }
