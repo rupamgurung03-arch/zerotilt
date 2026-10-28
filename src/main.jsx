@@ -440,7 +440,14 @@ function App() {
           if (deleteDemoError) throw deleteDemoError;
         }
         const allUserTrades = (data || []).filter((row) => !demoRows.some((demoRow) => demoRow.id === row.id)).map(databaseRowToJournalTrade);
-        const cloudTrades = allUserTrades.filter((trade) => trade._profileId === activeProfileId);
+        const matchingProfileTrades = allUserTrades.filter((trade) => trade._profileId === activeProfileId);
+        // The Main Account is the default view on a fresh browser profile. If its local
+        // profile list has not been created there yet, show this signed-in user's cloud
+        // trades even when their saved metadata references a profile created elsewhere.
+        const isFreshMainAccountView = activeProfileId === 'default' && profiles.length === 1;
+        const cloudTrades = matchingProfileTrades.length || !isFreshMainAccountView
+          ? matchingProfileTrades
+          : allUserTrades;
         const cloudLocalIds = new Set(cloudTrades.map((trade) => String(trade._localTradeId || trade.id)));
         const localOnlyTrades = localTrades.filter((trade) => !cloudLocalIds.has(String(trade._localTradeId || trade.id)));
         if (cancelled) return;
@@ -471,7 +478,7 @@ function App() {
 
     loadCloudTrades();
     return () => { cancelled = true; };
-  }, [session?.user?.id, activeProfileId]);
+  }, [session?.user?.id, activeProfileId, profiles.length]);
 
   useEffect(() => {
     try {
