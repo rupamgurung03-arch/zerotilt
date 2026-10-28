@@ -1,11 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://reycvzqoeerdiykruqkk.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+const supabaseUrl = 'https://reycvzqoeerdiykruqkk.supabase.co'
+const supabaseAnonKey = 'sb_publishable_QWrNA4NJlTbNd2UZREsjng_0Z9HeKpQ'
 
-export const isSupabaseConfigured = Boolean(
-  supabaseUrl && supabaseAnonKey && !supabaseAnonKey.includes('PASTE_YOUR_COPIED')
-)
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
 
 // The anon/publishable key is safe for frontend use when RLS is enabled.
 // Never put a service_role or secret key in this browser client.
