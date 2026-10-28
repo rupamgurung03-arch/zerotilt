@@ -27,6 +27,14 @@ export async function signInWithEmail(email, password) {
   return supabase.auth.signInWithPassword({ email, password })
 }
 
+// Send the user a link to return to this app and choose a new password.
+export async function sendPasswordResetEmail(email) {
+  if (!isSupabaseConfigured) return { data: null, error: missingConfigError() }
+  return supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  })
+}
+
 // Sign Out
 export async function signOut() {
   if (!isSupabaseConfigured) return { error: missingConfigError() }

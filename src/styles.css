@@ -2363,6 +2363,10 @@ input:focus, select:focus, textarea:focus {
 .auth-form .form-group { margin: 0; }
 .auth-submit { width: 100%; min-height: 42px; }
 .auth-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+.auth-text-button { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--accent-amber); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.auth-text-button:hover { text-decoration: underline; }
+.auth-text-button:disabled { opacity: 0.55; cursor: not-allowed; }
+.auth-back-link { margin: 0 0 14px; }
 .auth-confirmation-note { margin: 14px 0 0; color: var(--text-dim); font-size: 11px; line-height: 1.5; }
 :root[data-theme='light'] .auth-config-message,
 :root[data-theme='light'] .auth-mode-switch { background: #e9eceb; }

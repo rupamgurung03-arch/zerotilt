@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { supabase, signInWithEmail, signUpWithEmail, signOut, isSupabaseConfigured } from './supabase';
+import { supabase, signInWithEmail, signUpWithEmail, sendPasswordResetEmail, signOut, isSupabaseConfigured } from './supabase';
 import './styles.css';
 
 const PSYCHOLOGY_OPTIONS = [
@@ -277,11 +277,16 @@ function App() {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!isMounted) return;
       setSession(session);
       setAuthLoading(false);
-      if (session) {
+      if (event === 'PASSWORD_RECOVERY') {
+        setAuthMode('recovery');
+        setAuthNotice('Choose a new password for your account.');
+        setAuthError('');
+        setIsAuthModalOpen(true);
+      } else if (session) {
         setIsAuthModalOpen(false);
         setAuthPassword('');
         setAuthError('');
@@ -1027,7 +1032,17 @@ function App() {
     setAuthError('');
     setAuthNotice('');
     try {
-      if (authMode === 'signup') {
+      if (authMode === 'recovery') {
+        const { error } = await supabase.auth.updateUser({ password: authPassword });
+        if (error) {
+          showAuthError(error);
+        } else {
+          setAuthPassword('');
+          setAuthMode('signin');
+          setAuthNotice('Your password has been updated.');
+          setIsAuthModalOpen(false);
+        }
+      } else if (authMode === 'signup') {
         const { data, error } = await signUpWithEmail(authEmail.trim(), authPassword);
         if (error) {
           showAuthError(error);
@@ -1049,6 +1064,27 @@ function App() {
           setAuthPassword('');
         }
       }
+    } catch (error) {
+      showAuthError(error);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handlePasswordResetRequest = async () => {
+    const email = authEmail.trim();
+    if (!email) {
+      setAuthError('Enter your email address first, then choose “Forgot password?”.');
+      setAuthNotice('');
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError('');
+    setAuthNotice('');
+    try {
+      const { error } = await sendPasswordResetEmail(email);
+      if (error) showAuthError(error);
+      else setAuthNotice('If an account uses that email, a password reset link has been sent.');
     } catch (error) {
       showAuthError(error);
     } finally {
@@ -2507,31 +2543,36 @@ function App() {
             <div className="modal-header">
               <div>
                 <span className="modal-sub">TRADELOG ACCOUNT</span>
-                <h2 id="auth-modal-title">{authMode === 'signin' ? 'Welcome back' : 'Create your account'}</h2>
+                <h2 id="auth-modal-title">{authMode === 'signin' ? 'Welcome back' : authMode === 'recovery' ? 'Reset your password' : 'Create your account'}</h2>
               </div>
               <button type="button" className="close-btn" onClick={() => setIsAuthModalOpen(false)} aria-label="Close sign-in form">✕</button>
             </div>
-            <p className="panel-sub auth-intro">Sign in to access your journal and sync your trades securely.</p>
+            <p className="panel-sub auth-intro">{authMode === 'recovery' ? 'Set a new password to get back into your journal.' : 'Sign in to access your journal and sync your trades securely.'}</p>
             {!isSupabaseConfigured && <div className="auth-config-message" role="status">Supabase needs its project URL and public anon key in the Vite build settings before sign-in can work.</div>}
             {authError && <div className="auth-feedback error" role="alert">{authError}</div>}
             {authNotice && <div className="auth-feedback notice" role="status">{authNotice}</div>}
 
-            <div className="auth-mode-switch" role="tablist" aria-label="Account action">
-              <button type="button" role="tab" aria-selected={authMode === 'signin'} className={authMode === 'signin' ? 'active' : ''} onClick={() => { setAuthMode('signin'); setAuthError(''); setAuthNotice(''); }}>Sign in</button>
-              <button type="button" role="tab" aria-selected={authMode === 'signup'} className={authMode === 'signup' ? 'active' : ''} onClick={() => { setAuthMode('signup'); setAuthError(''); setAuthNotice(''); }}>Create account</button>
-            </div>
+            {authMode === 'recovery' ? (
+              <button type="button" className="auth-text-button auth-back-link" onClick={() => { setAuthMode('signin'); setAuthError(''); setAuthNotice(''); }}>Back to sign in</button>
+            ) : (
+              <div className="auth-mode-switch" role="tablist" aria-label="Account action">
+                <button type="button" role="tab" aria-selected={authMode === 'signin'} className={authMode === 'signin' ? 'active' : ''} onClick={() => { setAuthMode('signin'); setAuthError(''); setAuthNotice(''); }}>Sign in</button>
+                <button type="button" role="tab" aria-selected={authMode === 'signup'} className={authMode === 'signup' ? 'active' : ''} onClick={() => { setAuthMode('signup'); setAuthError(''); setAuthNotice(''); }}>Create account</button>
+              </div>
+            )}
 
             <form className="auth-form" onSubmit={handleAuthSubmit}>
-              <div className="form-group">
+              {authMode !== 'recovery' && <div className="form-group">
                 <label htmlFor="auth-email">Email</label>
                 <input id="auth-email" type="email" autoComplete="email" required value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="you@example.com" />
-              </div>
+              </div>}
               <div className="form-group">
-                <label htmlFor="auth-password">Password</label>
-                <input id="auth-password" type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} minLength={6} required value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder={authMode === 'signup' ? 'At least 6 characters' : 'Enter your password'} />
+                <label htmlFor="auth-password">{authMode === 'recovery' ? 'New password' : 'Password'}</label>
+                <input id="auth-password" type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} minLength={6} required value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder={authMode === 'signin' ? 'Enter your password' : 'At least 6 characters'} />
               </div>
+              {authMode === 'signin' && <button type="button" className="auth-text-button" onClick={handlePasswordResetRequest} disabled={authBusy || !isSupabaseConfigured}>Forgot password?</button>}
               <button className="btn-primary auth-submit" type="submit" disabled={authBusy || !isSupabaseConfigured}>
-                {authBusy ? 'Please wait…' : authMode === 'signin' ? 'Sign in with email' : 'Create account'}
+                {authBusy ? 'Please wait…' : authMode === 'recovery' ? 'Save new password' : authMode === 'signin' ? 'Sign in with email' : 'Create account'}
               </button>
             </form>
 
