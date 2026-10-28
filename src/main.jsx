@@ -404,6 +404,7 @@ function App() {
       setCloudSyncState('loading');
       setCloudSyncMessage('Loading cloud trades…');
       setPendingLocalTrades([]);
+      let localTradesForFallback = [];
       try {
         const localText = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
         const localBackupKey = `tradelog_trades_local_backup_${userId}_${activeProfileId}`;
@@ -419,6 +420,7 @@ function App() {
         [...(Array.isArray(currentLocalTrades) ? currentLocalTrades : []), ...(Array.isArray(backupLocalTrades) ? backupLocalTrades : [])]
           .forEach((trade) => localById.set(String(trade._localTradeId || trade.id), trade));
         const localTrades = [...localById.values()];
+        localTradesForFallback = localTrades;
 
         const { data, error } = await supabase
           .from('trades')
@@ -457,9 +459,13 @@ function App() {
           : `No cloud trades found for ${currentProfileObj.name}.${localOnlyTrades.length ? ` ${localOnlyTrades.length} browser-only trades are ready to import.` : ''}`);
       } catch (error) {
         if (cancelled) return;
+        setTrades(localTradesForFallback);
+        setTradesProfileId(activeProfileId);
         setCloudSyncReady(false);
         setCloudSyncState('error');
-        setCloudSyncMessage(error?.message || 'Could not load trades from Supabase. Check the trades table and its RLS policies.');
+        setCloudSyncMessage(localTradesForFallback.length
+          ? `Showing this account’s saved browser copy because cloud loading failed: ${error?.message || 'Check the trades table and its RLS policies.'}`
+          : error?.message || 'Could not load trades from Supabase. Check the trades table and its RLS policies.');
       }
     };
 
