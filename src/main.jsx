@@ -1,2714 +1,2789 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
+import { supabase, signInWithGoogle, signOut } from './supabase';
 import './styles.css';
 
 const PSYCHOLOGY_OPTIONS = [
-  { label: 'Disciplined', type: 'positive' },
-  { label: 'Patient', type: 'positive' },
-  { label: 'FOMO', type: 'negative' },
-  { label: 'Fear', type: 'negative' },
-  { label: 'Greed', type: 'negative' },
-  { label: 'Impatience', type: 'negative' },
-  { label: 'Revenge Trade', type: 'negative' },
-  { label: 'Hesitation', type: 'negative' },
-  { label: 'Overconfidence', type: 'negative' },
+{ label: 'Disciplined', type: 'positive' },
+{ label: 'Patient', type: 'positive' },
+{ label: 'FOMO', type: 'negative' },
+{ label: 'Fear', type: 'negative' },
+{ label: 'Greed', type: 'negative' },
+{ label: 'Impatience', type: 'negative' },
+{ label: 'Revenge Trade', type: 'negative' },
+{ label: 'Hesitation', type: 'negative' },
+{ label: 'Overconfidence', type: 'negative' },
 ];
 
 const MISTAKE_TAGS = ['Moved stop', 'Late entry', 'Overtraded', 'Exited early', 'Chased price', 'Ignored plan'];
 
 const INSTRUMENT_PRESETS = [
-  { category: 'Indices', assets: ['ES', 'NQ', 'YM', 'RTY', 'DAX', 'FTSE'] },
-  { category: 'FX', assets: ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD'] },
-  { category: 'Commodities', assets: ['GC', 'SI', 'HG', 'NG'] },
-  { category: 'Oil', assets: ['CL', 'BRN'] },
-  { category: 'Crypto', assets: ['BTC', 'ETH'] },
+{ category: 'Indices', assets: ['ES', 'NQ', 'YM', 'RTY', 'DAX', 'FTSE'] },
+{ category: 'FX', assets: ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD'] },
+{ category: 'Commodities', assets: ['GC', 'SI', 'HG', 'NG'] },
+{ category: 'Oil', assets: ['CL', 'BRN'] },
+{ category: 'Crypto', assets: ['BTC', 'ETH'] },
 ];
 
 const DEFAULT_PROFILES = [
-  { id: 'default', name: 'Main Account' },
+{ id: 'default', name: 'Main Account' },
 ];
 
 const INITIAL_TRADES = [
-  {
-    id: '1',
-    date: '2026-10-27',
-    time: '19:42',
-    instrument: 'NQ',
-    direction: 'Long',
-    setup: '15m S/R',
-    entry: '20150',
-    stopLoss: '20100',
-    takeProfit: '20300',
-    exit: '20290',
-    risk: '100',
-    resultR: 2.8,
-    psychology: ['Disciplined', 'Patient'],
-    screenshotUrl: '',
-    notes: 'Clean bounce off 15m S/R zone. Held to TP target.',
-  },
-  {
-    id: '2',
-    date: '2026-10-26',
-    time: '21:15',
-    instrument: 'NQ',
-    direction: 'Short',
-    setup: '15m S/R',
-    entry: '20200',
-    stopLoss: '20250',
-    takeProfit: '20050',
-    exit: '20095',
-    risk: '100',
-    resultR: 2.1,
-    psychology: ['Disciplined'],
-    screenshotUrl: '',
-    notes: 'Rejection at key resistance.',
-  },
+{
+id: '1',
+date: '2026-10-27',
+time: '19:42',
+instrument: 'NQ',
+direction: 'Long',
+setup: '15m S/R',
+entry: '20150',
+stopLoss: '20100',
+takeProfit: '20300',
+exit: '20290',
+risk: '100',
+resultR: 2.8,
+psychology: ['Disciplined', 'Patient'],
+screenshotUrl: '',
+notes: 'Clean bounce off 15m S/R zone. Held to TP target.',
+},
+{
+id: '2',
+date: '2026-10-26',
+time: '21:15',
+instrument: 'NQ',
+direction: 'Short',
+setup: '15m S/R',
+entry: '20200',
+stopLoss: '20250',
+takeProfit: '20050',
+exit: '20095',
+risk: '100',
+resultR: 2.1,
+psychology: ['Disciplined'],
+screenshotUrl: '',
+notes: 'Rejection at key resistance.',
+},
 ];
 
 const EMPTY_FORM = {
-  id: null,
-  date: new Date().toISOString().split('T')[0],
-  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-  instrument: 'NQ',
-  direction: 'Long',
-  entry: '',
-  stopLoss: '',
-  takeProfit: '',
-  exit: '',
-  risk: '',
-  resultR: '',
-  commissionCost: '',
-  spreadCost: '',
-  setup: '15m S/R',
-  plannedEntry: '',
-  plannedStopLoss: '',
-  plannedTakeProfit: '',
-  psychology: [],
-  mistakes: [],
-  plannedTradingViewUrl: '',
-  tradingViewUrl: '',
-  plannedScreenshotUrl: '',
-  screenshotUrl: '',
-  notes: '',
+id: null,
+date: new Date().toISOString().split('T')[0],
+time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+instrument: 'NQ',
+direction: 'Long',
+entry: '',
+stopLoss: '',
+takeProfit: '',
+exit: '',
+risk: '',
+resultR: '',
+commissionCost: '',
+spreadCost: '',
+setup: '15m S/R',
+plannedEntry: '',
+plannedStopLoss: '',
+plannedTakeProfit: '',
+psychology: [],
+mistakes: [],
+plannedTradingViewUrl: '',
+tradingViewUrl: '',
+plannedScreenshotUrl: '',
+screenshotUrl: '',
+notes: '',
 };
 
 function getLocalGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning.';
-  if (hour < 18) return 'Good afternoon.';
-  return 'Good evening.';
+const hour = new Date().getHours();
+if (hour < 12) return 'Good morning.';
+if (hour < 18) return 'Good afternoon.';
+return 'Good evening.';
 }
 
 function getTimeOfDayBucket(time) {
-  const hour = parseInt((time || '').split(':')[0], 10);
-  if (Number.isNaN(hour)) return '';
-  if (hour < 6) return '00-06';
-  if (hour < 12) return '06-12';
-  if (hour < 18) return '12-18';
-  return '18-24';
+const hour = parseInt((time || '').split(':')[0], 10);
+if (Number.isNaN(hour)) return '';
+if (hour < 6) return '00-06';
+if (hour < 12) return '06-12';
+if (hour < 18) return '12-18';
+return '18-24';
 }
 
 function safeExternalUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : '';
-  } catch {
-    return '';
-  }
+try {
+const url = new URL(value);
+return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : '';
+} catch {
+return '';
+}
 }
 
 function compressAnalysisImage(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Could not read that image.'));
-    reader.onload = () => {
-      const image = new Image();
-      image.onerror = () => reject(new Error('That image format could not be opened.'));
-      image.onload = () => {
-        const maxDimension = 1440;
-        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.78));
-      };
-      image.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
+return new Promise((resolve, reject) => {
+const reader = new FileReader();
+reader.onerror = () => reject(new Error('Could not read that image.'));
+reader.onload = () => {
+const image = new Image();
+image.onerror = () => reject(new Error('That image format could not be opened.'));
+image.onload = () => {
+const maxDimension = 1440;
+const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+const canvas = document.createElement('canvas');
+canvas.width = Math.max(1, Math.round(image.width * scale));
+canvas.height = Math.max(1, Math.round(image.height * scale));
+canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+resolve(canvas.toDataURL('image/jpeg', 0.78));
+};
+image.src = reader.result;
+};
+reader.readAsDataURL(file);
+});
 }
 
 function getLocalDateString(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+const year = date.getFullYear();
+const month = String(date.getMonth() + 1).padStart(2, '0');
+const day = String(date.getDate()).padStart(2, '0');
+return ${year}-${month}-${day};
 }
 
 function normalizeTopDownData(data) {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
-  if (Array.isArray(data.cards)) return { cards: data.cards };
+if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+if (Array.isArray(data.cards)) return { cards: data.cards };
 
-  const legacyTimeframes = {
-    weekly: 'Weekly overview',
-    daily: 'Daily',
-    '4h': '4 hour',
-    '1h': '1 hour',
-    '15m': '15 minute',
-  };
-  const legacyPeriods = Object.keys(legacyTimeframes).some((key) => Object.hasOwn(data, key))
-    ? { [`month:${getLocalDateString().slice(0, 7)}`]: data }
-    : data;
-  const cards = [];
-  Object.entries(legacyPeriods).forEach(([period, sections]) => {
-    if (!sections || typeof sections !== 'object') return;
-    const date = period.startsWith('month:') ? `${period.slice(6)}-01`
-      : period.startsWith('week:') ? period.slice(5)
-        : getLocalDateString();
-    Object.entries(legacyTimeframes).forEach(([timeframe, title]) => {
-      const section = sections[timeframe];
-      if (!section || !(section.imageData || section.tradingViewUrl || section.notes)) return;
-      cards.push({
-        id: `migrated-${period}-${timeframe}`,
-        date,
-        title,
-        timeframe: title,
-        imageData: section.imageData || '',
-        imageName: section.imageName || '',
-        tradingViewUrl: section.tradingViewUrl || '',
-        referenceUrl: '',
-        description: section.notes || '',
-      });
-    });
-  });
-  return { cards };
+const legacyTimeframes = {
+weekly: 'Weekly overview',
+daily: 'Daily',
+'4h': '4 hour',
+'1h': '1 hour',
+'15m': '15 minute',
+};
+const legacyPeriods = Object.keys(legacyTimeframes).some((key) => Object.hasOwn(data, key))
+? { [month:${getLocalDateString().slice(0, 7)}]: data }
+: data;
+const cards = [];
+Object.entries(legacyPeriods).forEach(([period, sections]) => {
+if (!sections || typeof sections !== 'object') return;
+const date = period.startsWith('month:') ? ${period.slice(6)}-01
+: period.startsWith('week:') ? period.slice(5)
+: getLocalDateString();
+Object.entries(legacyTimeframes).forEach(([timeframe, title]) => {
+const section = sections[timeframe];
+if (!section || !(section.imageData || section.tradingViewUrl || section.notes)) return;
+cards.push({
+id: migrated-${period}-${timeframe},
+date,
+title,
+timeframe: title,
+imageData: section.imageData || '',
+imageName: section.imageName || '',
+tradingViewUrl: section.tradingViewUrl || '',
+referenceUrl: '',
+description: section.notes || '',
+});
+});
+});
+return { cards };
 }
 
 function App() {
-  // --- Profile State Management ---
-  const [profiles, setProfiles] = useState(() => {
-    const saved = localStorage.getItem('tradelog_profiles');
-    return saved ? JSON.parse(saved) : DEFAULT_PROFILES;
-  });
+// --- Supabase Authentication State ---
+const [session, setSession] = useState(null);
 
-  const [activeProfileId, setActiveProfileId] = useState(() => {
-    const saved = localStorage.getItem('tradelog_active_profile');
-    return saved || 'default';
-  });
+useEffect(() => {
+supabase.auth.getSession().then(({ data: { session } }) => {
+setSession(session);
+});
 
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [newProfileName, setNewProfileName] = useState('');
+const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+  setSession(session);
+});
 
-  // --- Trade Data per Profile ---
-  const [trades, setTrades] = useState(() => {
-    const saved = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
-    if (saved) return JSON.parse(saved);
-    if (activeProfileId === 'default') return INITIAL_TRADES;
-    return [];
-  });
-  const [tradesProfileId, setTradesProfileId] = useState(activeProfileId);
-  const [topDownState, setTopDownState] = useState(() => {
-    const profileId = localStorage.getItem('tradelog_active_profile') || 'default';
-    try {
-      return { profileId, data: normalizeTopDownData(JSON.parse(localStorage.getItem(`tradelog_topdown_${profileId}`) || '{}')) };
-    } catch {
-      return { profileId, data: {} };
-    }
-  });
-  const [topDownStorageError, setTopDownStorageError] = useState('');
-  const [topDownSelectedDate, setTopDownSelectedDate] = useState(getLocalDateString);
-  const [isTopDownCardModalOpen, setIsTopDownCardModalOpen] = useState(false);
-  const [topDownCardForm, setTopDownCardForm] = useState({
-    id: null,
-    date: getLocalDateString(),
-    title: '',
-    timeframe: '',
-    imageData: '',
-    imageName: '',
-    tradingViewUrl: '',
-    referenceUrl: '',
-    description: '',
-  });
+return () => subscription.unsubscribe();
 
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [theme, setTheme] = useState(() => {
-    const savedTheme = localStorage.getItem('tradelog_theme') === 'light' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = savedTheme;
-    return savedTheme;
-  });
-  const [greeting, setGreeting] = useState(getLocalGreeting);
-  const [equityChartType, setEquityChartType] = useState('line');
-  const [performanceFilters, setPerformanceFilters] = useState({
-    instrument: 'all',
-    direction: 'all',
-    timeOfDay: 'all',
-  });
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [tradeEntryMode, setTradeEntryMode] = useState('standard');
-  const [previewImage, setPreviewImage] = useState(null);
-  const [selectedTradeDetails, setSelectedTradeDetails] = useState(null);
-  const [selectedDayTrades, setSelectedDayTrades] = useState(null);
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 9, 1));
-  const [dashboardSelectedDate, setDashboardSelectedDate] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [tradeFilters, setTradeFilters] = useState({ instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' });
-  const [tradePage, setTradePage] = useState(1);
-  const [formData, setFormData] = useState(EMPTY_FORM);
 
-  useEffect(() => {
-    const greetingTimer = setInterval(() => setGreeting(getLocalGreeting()), 60_000);
-    return () => clearInterval(greetingTimer);
-  }, []);
+}, []);
 
-  useEffect(() => {
-    localStorage.setItem('tradelog_theme', theme);
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+// --- Profile State Management ---
+const [profiles, setProfiles] = useState(() => {
+const saved = localStorage.getItem('tradelog_profiles');
+return saved ? JSON.parse(saved) : DEFAULT_PROFILES;
+});
 
-  // Sync Profiles & Active Profile to localStorage
-  useEffect(() => {
-    localStorage.setItem('tradelog_profiles', JSON.stringify(profiles));
-  }, [profiles]);
+const [activeProfileId, setActiveProfileId] = useState(() => {
+const saved = localStorage.getItem('tradelog_active_profile');
+return saved || 'default';
+});
 
-  useEffect(() => {
-    localStorage.setItem('tradelog_active_profile', activeProfileId);
-    const saved = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
-    if (saved) {
-      setTrades(JSON.parse(saved));
-    } else if (activeProfileId === 'default') {
-      setTrades(INITIAL_TRADES);
-    } else {
-      setTrades([]);
-    }
-    setTradesProfileId(activeProfileId);
-  }, [activeProfileId]);
+const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+const [newProfileName, setNewProfileName] = useState('');
 
-  // Save trades specific to current profile
-  useEffect(() => {
-    localStorage.setItem(`tradelog_trades_${activeProfileId}`, JSON.stringify(trades));
-  }, [trades, activeProfileId]);
+// --- Trade Data per Profile ---
+const [trades, setTrades] = useState(() => {
+const saved = localStorage.getItem(tradelog_trades_${activeProfileId});
+if (saved) return JSON.parse(saved);
+if (activeProfileId === 'default') return INITIAL_TRADES;
+return [];
+});
+const [tradesProfileId, setTradesProfileId] = useState(activeProfileId);
+const [topDownState, setTopDownState] = useState(() => {
+const profileId = localStorage.getItem('tradelog_active_profile') || 'default';
+try {
+return { profileId, data: normalizeTopDownData(JSON.parse(localStorage.getItem(tradelog_topdown_${profileId}) || '{}')) };
+} catch {
+return { profileId, data: {} };
+}
+});
+const [topDownStorageError, setTopDownStorageError] = useState('');
+const [topDownSelectedDate, setTopDownSelectedDate] = useState(getLocalDateString);
+const [isTopDownCardModalOpen, setIsTopDownCardModalOpen] = useState(false);
+const [topDownCardForm, setTopDownCardForm] = useState({
+id: null,
+date: getLocalDateString(),
+title: '',
+timeframe: '',
+imageData: '',
+imageName: '',
+tradingViewUrl: '',
+referenceUrl: '',
+description: '',
+});
 
-  useEffect(() => {
-    try {
-      const saved = normalizeTopDownData(JSON.parse(localStorage.getItem(`tradelog_topdown_${activeProfileId}`) || '{}'));
-      setTopDownState({ profileId: activeProfileId, data: saved });
-    } catch {
-      setTopDownState({ profileId: activeProfileId, data: {} });
-    }
-  }, [activeProfileId]);
+const [activeTab, setActiveTab] = useState('dashboard');
+const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+const [theme, setTheme] = useState(() => {
+const savedTheme = localStorage.getItem('tradelog_theme') === 'light' ? 'light' : 'dark';
+document.documentElement.dataset.theme = savedTheme;
+return savedTheme;
+});
+const [greeting, setGreeting] = useState(getLocalGreeting);
+const [equityChartType, setEquityChartType] = useState('line');
+const [performanceFilters, setPerformanceFilters] = useState({
+instrument: 'all',
+direction: 'all',
+timeOfDay: 'all',
+});
+const [isModalOpen, setIsModalOpen] = useState(false);
+const [tradeEntryMode, setTradeEntryMode] = useState('standard');
+const [previewImage, setPreviewImage] = useState(null);
+const [selectedTradeDetails, setSelectedTradeDetails] = useState(null);
+const [selectedDayTrades, setSelectedDayTrades] = useState(null);
+const [currentDate, setCurrentDate] = useState(new Date(2026, 9, 1));
+const [dashboardSelectedDate, setDashboardSelectedDate] = useState('');
+const [searchTerm, setSearchTerm] = useState('');
+const [tradeFilters, setTradeFilters] = useState({ instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' });
+const [tradePage, setTradePage] = useState(1);
+const [formData, setFormData] = useState(EMPTY_FORM);
 
-  useEffect(() => {
-    if (topDownState.profileId !== activeProfileId) return;
-    try {
-      localStorage.setItem(`tradelog_topdown_${activeProfileId}`, JSON.stringify(topDownState.data));
-      setTopDownStorageError('');
-    } catch {
-      setTopDownStorageError('Could not save this screenshot. Try a smaller image or remove an older one.');
-    }
-  }, [topDownState, activeProfileId]);
+useEffect(() => {
+const greetingTimer = setInterval(() => setGreeting(getLocalGreeting()), 60_000);
+return () => clearInterval(greetingTimer);
+}, []);
 
-  // Profile Actions
-  const handleCreateProfile = (e) => {
-    e.preventDefault();
-    if (!newProfileName.trim()) return;
-    const newId = `profile_${Date.now()}`;
-    const newProf = { id: newId, name: newProfileName.trim() };
-    setProfiles((prev) => [...prev, newProf]);
-    switchActiveProfile(newId);
-    setNewProfileName('');
-    setIsProfileModalOpen(false);
-  };
+useEffect(() => {
+localStorage.setItem('tradelog_theme', theme);
+document.documentElement.dataset.theme = theme;
+}, [theme]);
 
-  const handleDeleteProfile = (idToDelete) => {
-    if (profiles.length <= 1) {
-      alert('You must keep at least one profile.');
-      return;
-    }
-    if (window.confirm('Are you sure? This will delete all trade logs and analysis cards inside this profile.')) {
-      setProfiles((prev) => prev.filter((p) => p.id !== idToDelete));
-      localStorage.removeItem(`tradelog_trades_${idToDelete}`);
-      localStorage.removeItem(`tradelog_topdown_${idToDelete}`);
-      if (activeProfileId === idToDelete) {
-        const remaining = profiles.filter((p) => p.id !== idToDelete);
-        switchActiveProfile(remaining[0].id);
+// Sync Profiles & Active Profile to localStorage
+useEffect(() => {
+localStorage.setItem('tradelog_profiles', JSON.stringify(profiles));
+}, [profiles]);
+
+useEffect(() => {
+localStorage.setItem('tradelog_active_profile', activeProfileId);
+const saved = localStorage.getItem(tradelog_trades_${activeProfileId});
+if (saved) {
+setTrades(JSON.parse(saved));
+} else if (activeProfileId === 'default') {
+setTrades(INITIAL_TRADES);
+} else {
+setTrades([]);
+}
+setTradesProfileId(activeProfileId);
+}, [activeProfileId]);
+
+// Save trades specific to current profile
+useEffect(() => {
+localStorage.setItem(tradelog_trades_${activeProfileId}, JSON.stringify(trades));
+}, [trades, activeProfileId]);
+
+useEffect(() => {
+try {
+const saved = normalizeTopDownData(JSON.parse(localStorage.getItem(tradelog_topdown_${activeProfileId}) || '{}'));
+setTopDownState({ profileId: activeProfileId, data: saved });
+} catch {
+setTopDownState({ profileId: activeProfileId, data: {} });
+}
+}, [activeProfileId]);
+
+useEffect(() => {
+if (topDownState.profileId !== activeProfileId) return;
+try {
+localStorage.setItem(tradelog_topdown_${activeProfileId}, JSON.stringify(topDownState.data));
+setTopDownStorageError('');
+} catch {
+setTopDownStorageError('Could not save this screenshot. Try a smaller image or remove an older one.');
+}
+}, [topDownState, activeProfileId]);
+
+// Profile Actions
+const handleCreateProfile = (e) => {
+e.preventDefault();
+if (!newProfileName.trim()) return;
+const newId = profile_${Date.now()};
+const newProf = { id: newId, name: newProfileName.trim() };
+setProfiles((prev) => [...prev, newProf]);
+switchActiveProfile(newId);
+setNewProfileName('');
+setIsProfileModalOpen(false);
+};
+
+const handleDeleteProfile = (idToDelete) => {
+if (profiles.length <= 1) {
+alert('You must keep at least one profile.');
+return;
+}
+if (window.confirm('Are you sure? This will delete all trade logs and analysis cards inside this profile.')) {
+setProfiles((prev) => prev.filter((p) => p.id !== idToDelete));
+localStorage.removeItem(tradelog_trades_${idToDelete});
+localStorage.removeItem(tradelog_topdown_${idToDelete});
+if (activeProfileId === idToDelete) {
+const remaining = profiles.filter((p) => p.id !== idToDelete);
+switchActiveProfile(remaining[0].id);
+}
+}
+};
+
+const currentProfileObj = profiles.find((p) => p.id === activeProfileId) || profiles[0];
+const isProfileDataReady = tradesProfileId === activeProfileId;
+
+// Auto-Calculate R-Multiple
+useEffect(() => {
+const entry = parseFloat(formData.entry);
+const sl = parseFloat(formData.stopLoss);
+const exit = parseFloat(formData.exit);
+
+if (!isNaN(entry) && !isNaN(sl) && !isNaN(exit) && entry !== sl) {
+  const riskPerUnit = Math.abs(entry - sl);
+  let rValue = 0;
+  if (formData.direction === 'Long') {
+    rValue = (exit - entry) / riskPerUnit;
+  } else {
+    rValue = (entry - exit) / riskPerUnit;
+  }
+  setFormData((prev) => ({ ...prev, resultR: rValue.toFixed(1) }));
+}
+
+
+}, [formData.entry, formData.stopLoss, formData.exit, formData.direction]);
+
+// Core Metrics
+const totalR = trades.reduce((acc, t) => acc + (parseFloat(t.resultR) || 0), 0).toFixed(1);
+const winCount = trades.filter((t) => (parseFloat(t.resultR) || 0) > 0).length;
+const winRate = trades.length > 0 ? Math.round((winCount / trades.length) * 100) : 0;
+const avgR = trades.length > 0 ? (totalR / trades.length).toFixed(1) : '0.0';
+const totalPL = (totalR * 10).toFixed(0);
+
+// Advanced Analytics
+const winningTrades = trades.filter((t) => (parseFloat(t.resultR) || 0) > 0);
+const losingTrades = trades.filter((t) => (parseFloat(t.resultR) || 0) < 0);
+
+const bestTradeR = trades.length > 0 ? Math.max(...trades.map((t) => parseFloat(t.resultR) || 0)).toFixed(1) : '0.0';
+const worstTradeR = trades.length > 0 ? Math.min(...trades.map((t) => parseFloat(t.resultR) || 0)).toFixed(1) : '0.0';
+
+const avgWinR = winningTrades.length > 0
+? (winningTrades.reduce((acc, t) => acc + parseFloat(t.resultR), 0) / winningTrades.length).toFixed(1)
+: '0.0';
+
+const avgLossR = losingTrades.length > 0
+? (losingTrades.reduce((acc, t) => acc + parseFloat(t.resultR), 0) / losingTrades.length).toFixed(1)
+: '0.0';
+
+const grossWinsR = winningTrades.reduce((acc, t) => acc + parseFloat(t.resultR), 0);
+const grossLossesR = Math.abs(losingTrades.reduce((acc, t) => acc + parseFloat(t.resultR), 0));
+const profitFactor = grossLossesR > 0 ? (grossWinsR / grossLossesR).toFixed(2) : (grossWinsR > 0 ? '∞' : '0.00');
+const profitFactorNumber = profitFactor === '∞' ? Infinity : parseFloat(profitFactor) || 0;
+const profitFactorProgress = Number.isFinite(profitFactorNumber)
+? profitFactorNumber / (profitFactorNumber + 1)
+: 1;
+
+const winRateDec = trades.length > 0 ? winningTrades.length / trades.length : 0;
+const lossRateDec = trades.length > 0 ? losingTrades.length / trades.length : 0;
+const expectancyR = ((winRateDec * parseFloat(avgWinR)) - (lossRateDec * Math.abs(parseFloat(avgLossR)))).toFixed(2);
+
+const sortedTradesForEquity = [...trades].sort((a, b) => new Date(${a.date}T${a.time}) - new Date(${b.date}T${b.time}));
+let maxConsecutiveWins = 0;
+let currentConsecutiveWins = 0;
+let maxConsecutiveLosses = 0;
+let currentConsecutiveLosses = 0;
+
+sortedTradesForEquity.forEach((t) => {
+const r = parseFloat(t.resultR) || 0;
+if (r > 0) {
+currentConsecutiveWins++;
+currentConsecutiveLosses = 0;
+if (currentConsecutiveWins > maxConsecutiveWins) maxConsecutiveWins = currentConsecutiveWins;
+} else if (r < 0) {
+currentConsecutiveLosses++;
+currentConsecutiveWins = 0;
+if (currentConsecutiveLosses > maxConsecutiveLosses) maxConsecutiveLosses = currentConsecutiveLosses;
+} else {
+currentConsecutiveWins = 0;
+currentConsecutiveLosses = 0;
+}
+});
+
+const longTrades = trades.filter((t) => t.direction === 'Long');
+const shortTrades = trades.filter((t) => t.direction === 'Short');
+
+const longWins = longTrades.filter((t) => (parseFloat(t.resultR) || 0) > 0).length;
+const shortWins = shortTrades.filter((t) => (parseFloat(t.resultR) || 0) > 0).length;
+
+const longWinRate = longTrades.length > 0 ? Math.round((longWins / longTrades.length) * 100) : 0;
+const shortWinRate = shortTrades.length > 0 ? Math.round((shortWins / shortTrades.length) * 100) : 0;
+
+const longPct = trades.length > 0 ? Math.round((longTrades.length / trades.length) * 100) : 0;
+const shortPct = trades.length > 0 ? 100 - longPct : 0;
+
+let cumulativeR = 0;
+const equityCurvePoints = sortedTradesForEquity.map((t) => {
+cumulativeR += parseFloat(t.resultR) || 0;
+return { date: t.date, totalR: cumulativeR };
+});
+const dailyRPoints = Object.values(sortedTradesForEquity.reduce((days, trade) => {
+const resultR = parseFloat(trade.resultR) || 0;
+days[trade.date] = days[trade.date] || { date: trade.date, totalR: 0 };
+days[trade.date].totalR += resultR;
+return days;
+}, {}));
+
+// Monte Carlo Engine State
+const [mcSource, setMcSource] = useState('journal');
+const [mcCustomProfile, setMcCustomProfile] = useState({
+winRate: 50,
+avgWinR: 2.0,
+avgLossR: 1.0,
+tradesPerDay: 2,
+});
+
+const [mcParams, setMcParams] = useState({
+accountCost: 500,
+accountSize: 100000,
+riskPerTradePct: 1.0,
+executionCostsEnabled: false,
+slippageCostPerTrade: 0,
+commissionCostPerTrade: 0,
+spreadCostPerTrade: 0,
+drawdownType: 'static',
+totalMaxDDPct: 10,
+dailyMaxDDPct: 5,
+passStructure: 'two_step',
+p1TargetPct: 8,
+p2TargetPct: 5,
+p3TargetPct: 5,
+minTradingDays: 5,
+evalConsistencyEnabled: false,
+evalConsistencyPct: 33,
+fundedTargetPct: 0,
+payoutSplitPct: 80,
+minDaysToPayout: 14,
+fundedConsistencyEnabled: false,
+fundedConsistencyPct: 40,
+numSimulations: 500,
+});
+
+const [mcResults, setMcResults] = useState(null);
+
+useEffect(() => {
+setMcResults(null);
+}, [trades, activeProfileId]);
+
+const switchActiveProfile = (profileId) => {
+setMcResults(null);
+setTradesProfileId(null);
+setPerformanceFilters({ instrument: 'all', direction: 'all', timeOfDay: 'all' });
+setTradeFilters({ instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' });
+setDashboardSelectedDate('');
+setActiveProfileId(profileId);
+};
+
+const runAdvancedMonteCarlo = () => {
+if (mcSource === 'journal' && (tradesProfileId !== activeProfileId || trades.length === 0)) {
+setMcResults(null);
+return;
+}
+
+const simWinRate = mcSource === 'journal' ? winRate : mcCustomProfile.winRate;
+const simAvgWin = mcSource === 'journal' ? parseFloat(avgWinR) || 0 : mcCustomProfile.avgWinR;
+const simAvgLoss = mcSource === 'journal' ? Math.abs(parseFloat(avgLossR) || 0) : mcCustomProfile.avgLossR;
+const tradesPerDay = mcSource === 'journal' ? 2 : mcCustomProfile.tradesPerDay;
+
+const winRateDec = simWinRate / 100;
+const initialBalance = mcParams.accountSize;
+const totalMaxDDAmt = initialBalance * (mcParams.totalMaxDDPct / 100);
+const dailyMaxDDAmt = initialBalance * (mcParams.dailyMaxDDPct / 100);
+
+const p1TargetAmt = initialBalance * (mcParams.p1TargetPct / 100);
+const p2TargetAmt = initialBalance * (mcParams.p2TargetPct / 100);
+const p3TargetAmt = initialBalance * (mcParams.p3TargetPct / 100);
+const executionCostPerTrade = mcParams.executionCostsEnabled
+  ? mcParams.slippageCostPerTrade + mcParams.commissionCostPerTrade + mcParams.spreadCostPerTrade
+  : 0;
+const fundedTargetAmt = initialBalance * (mcParams.fundedTargetPct / 100);
+
+let passedCount = 0;
+let blownCount = 0;
+const daysToPassList = [];
+const daysToFirstPayoutList = [];
+const simulatedPaths = [];
+
+const timeframes = [
+  { days: 30, label: '30 Days' },
+  { days: 60, label: '60 Days' },
+  { days: 90, label: '90 Days' },
+  { days: 180, label: '6 Months' },
+  { days: 365, label: '1 Year' },
+  { days: 730, label: '2 Years' },
+  { days: 3650, label: '10 Years' },
+];
+
+const profitsByTimeframe = Object.fromEntries(timeframes.map(({ days }) => [days, []]));
+const payoutsByTimeframe = Object.fromEntries(timeframes.map(({ days }) => [days, []]));
+
+for (let sim = 0; sim < mcParams.numSimulations; sim++) {
+  let stage = mcParams.passStructure === 'instant' ? 'funded' : 'p1';
+  let currentBalance = initialBalance;
+  let peakEquity = initialBalance;
+  let dayCount = 0;
+  let stageProfit = 0;
+  let p1PassedDay = 0;
+  let p2PassedDay = 0;
+  let passDay = 0;
+  let firstPayoutDay = 0;
+  let totalPayoutsReceived = 0;
+
+  const recordTimeframe = (day) => {
+    timeframes.forEach((timeframe) => {
+      if (day === timeframe.days) {
+        profitsByTimeframe[timeframe.days].push(totalPayoutsReceived - mcParams.accountCost);
+        payoutsByTimeframe[timeframe.days].push(totalPayoutsReceived);
       }
-    }
+    });
   };
 
-  const currentProfileObj = profiles.find((p) => p.id === activeProfileId) || profiles[0];
-  const isProfileDataReady = tradesProfileId === activeProfileId;
+  let dailyProfits = [];
+  let isBlown = false;
 
-  // Auto-Calculate R-Multiple
-  useEffect(() => {
-    const entry = parseFloat(formData.entry);
-    const sl = parseFloat(formData.stopLoss);
-    const exit = parseFloat(formData.exit);
+  const maxDays = 3650;
+  const path = [{ day: 0, balance: initialBalance, stage }];
 
-    if (!isNaN(entry) && !isNaN(sl) && !isNaN(exit) && entry !== sl) {
-      const riskPerUnit = Math.abs(entry - sl);
-      let rValue = 0;
-      if (formData.direction === 'Long') {
-        rValue = (exit - entry) / riskPerUnit;
+  for (let day = 1; day <= maxDays; day++) {
+    if (isBlown) {
+      path.push({ day, balance: currentBalance, stage: 'blown' });
+      recordTimeframe(day);
+      continue;
+    }
+
+    dayCount = day;
+    let dayProfit = 0;
+
+    for (let t = 0; t < tradesPerDay; t++) {
+      const riskAmt = currentBalance * (mcParams.riskPerTradePct / 100);
+      const isWin = Math.random() < winRateDec;
+
+      let tradePL = 0;
+      if (isWin) {
+        tradePL = riskAmt * simAvgWin - executionCostPerTrade;
       } else {
-        rValue = (entry - exit) / riskPerUnit;
-      }
-      setFormData((prev) => ({ ...prev, resultR: rValue.toFixed(1) }));
-    }
-  }, [formData.entry, formData.stopLoss, formData.exit, formData.direction]);
-
-  // Core Metrics
-  const totalR = trades.reduce((acc, t) => acc + (parseFloat(t.resultR) || 0), 0).toFixed(1);
-  const winCount = trades.filter((t) => (parseFloat(t.resultR) || 0) > 0).length;
-  const winRate = trades.length > 0 ? Math.round((winCount / trades.length) * 100) : 0;
-  const avgR = trades.length > 0 ? (totalR / trades.length).toFixed(1) : '0.0';
-  const totalPL = (totalR * 10).toFixed(0);
-
-  // Advanced Analytics
-  const winningTrades = trades.filter((t) => (parseFloat(t.resultR) || 0) > 0);
-  const losingTrades = trades.filter((t) => (parseFloat(t.resultR) || 0) < 0);
-
-  const bestTradeR = trades.length > 0 ? Math.max(...trades.map((t) => parseFloat(t.resultR) || 0)).toFixed(1) : '0.0';
-  const worstTradeR = trades.length > 0 ? Math.min(...trades.map((t) => parseFloat(t.resultR) || 0)).toFixed(1) : '0.0';
-
-  const avgWinR = winningTrades.length > 0 
-    ? (winningTrades.reduce((acc, t) => acc + parseFloat(t.resultR), 0) / winningTrades.length).toFixed(1) 
-    : '0.0';
-
-  const avgLossR = losingTrades.length > 0 
-    ? (losingTrades.reduce((acc, t) => acc + parseFloat(t.resultR), 0) / losingTrades.length).toFixed(1) 
-    : '0.0';
-
-  const grossWinsR = winningTrades.reduce((acc, t) => acc + parseFloat(t.resultR), 0);
-  const grossLossesR = Math.abs(losingTrades.reduce((acc, t) => acc + parseFloat(t.resultR), 0));
-  const profitFactor = grossLossesR > 0 ? (grossWinsR / grossLossesR).toFixed(2) : (grossWinsR > 0 ? '∞' : '0.00');
-  const profitFactorNumber = profitFactor === '∞' ? Infinity : parseFloat(profitFactor) || 0;
-  const profitFactorProgress = Number.isFinite(profitFactorNumber)
-    ? profitFactorNumber / (profitFactorNumber + 1)
-    : 1;
-
-  const winRateDec = trades.length > 0 ? winningTrades.length / trades.length : 0;
-  const lossRateDec = trades.length > 0 ? losingTrades.length / trades.length : 0;
-  const expectancyR = ((winRateDec * parseFloat(avgWinR)) - (lossRateDec * Math.abs(parseFloat(avgLossR)))).toFixed(2);
-
-  const sortedTradesForEquity = [...trades].sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
-  let maxConsecutiveWins = 0;
-  let currentConsecutiveWins = 0;
-  let maxConsecutiveLosses = 0;
-  let currentConsecutiveLosses = 0;
-
-  sortedTradesForEquity.forEach((t) => {
-    const r = parseFloat(t.resultR) || 0;
-    if (r > 0) {
-      currentConsecutiveWins++;
-      currentConsecutiveLosses = 0;
-      if (currentConsecutiveWins > maxConsecutiveWins) maxConsecutiveWins = currentConsecutiveWins;
-    } else if (r < 0) {
-      currentConsecutiveLosses++;
-      currentConsecutiveWins = 0;
-      if (currentConsecutiveLosses > maxConsecutiveLosses) maxConsecutiveLosses = currentConsecutiveLosses;
-    } else {
-      currentConsecutiveWins = 0;
-      currentConsecutiveLosses = 0;
-    }
-  });
-
-  const longTrades = trades.filter((t) => t.direction === 'Long');
-  const shortTrades = trades.filter((t) => t.direction === 'Short');
-
-  const longWins = longTrades.filter((t) => (parseFloat(t.resultR) || 0) > 0).length;
-  const shortWins = shortTrades.filter((t) => (parseFloat(t.resultR) || 0) > 0).length;
-
-  const longWinRate = longTrades.length > 0 ? Math.round((longWins / longTrades.length) * 100) : 0;
-  const shortWinRate = shortTrades.length > 0 ? Math.round((shortWins / shortTrades.length) * 100) : 0;
-
-  const longPct = trades.length > 0 ? Math.round((longTrades.length / trades.length) * 100) : 0;
-  const shortPct = trades.length > 0 ? 100 - longPct : 0;
-
-  let cumulativeR = 0;
-  const equityCurvePoints = sortedTradesForEquity.map((t) => {
-    cumulativeR += parseFloat(t.resultR) || 0;
-    return { date: t.date, totalR: cumulativeR };
-  });
-  const dailyRPoints = Object.values(sortedTradesForEquity.reduce((days, trade) => {
-    const resultR = parseFloat(trade.resultR) || 0;
-    days[trade.date] = days[trade.date] || { date: trade.date, totalR: 0 };
-    days[trade.date].totalR += resultR;
-    return days;
-  }, {}));
-
-  // Monte Carlo Engine State
-  const [mcSource, setMcSource] = useState('journal');
-  const [mcCustomProfile, setMcCustomProfile] = useState({
-    winRate: 50,
-    avgWinR: 2.0,
-    avgLossR: 1.0,
-    tradesPerDay: 2,
-  });
-
-  const [mcParams, setMcParams] = useState({
-    accountCost: 500,
-    accountSize: 100000,
-    riskPerTradePct: 1.0,
-    executionCostsEnabled: false,
-    slippageCostPerTrade: 0,
-    commissionCostPerTrade: 0,
-    spreadCostPerTrade: 0,
-    drawdownType: 'static',
-    totalMaxDDPct: 10,
-    dailyMaxDDPct: 5,
-    passStructure: 'two_step',
-    p1TargetPct: 8,
-    p2TargetPct: 5,
-    p3TargetPct: 5,
-    minTradingDays: 5,
-    evalConsistencyEnabled: false,
-    evalConsistencyPct: 33,
-    fundedTargetPct: 0,
-    payoutSplitPct: 80,
-    minDaysToPayout: 14,
-    fundedConsistencyEnabled: false,
-    fundedConsistencyPct: 40,
-    numSimulations: 500,
-  });
-
-  const [mcResults, setMcResults] = useState(null);
-
-  useEffect(() => {
-    setMcResults(null);
-  }, [trades, activeProfileId]);
-
-  const switchActiveProfile = (profileId) => {
-    setMcResults(null);
-    setTradesProfileId(null);
-    setPerformanceFilters({ instrument: 'all', direction: 'all', timeOfDay: 'all' });
-    setTradeFilters({ instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' });
-    setDashboardSelectedDate('');
-    setActiveProfileId(profileId);
-  };
-
-  const runAdvancedMonteCarlo = () => {
-    if (mcSource === 'journal' && (tradesProfileId !== activeProfileId || trades.length === 0)) {
-      setMcResults(null);
-      return;
-    }
-
-    const simWinRate = mcSource === 'journal' ? winRate : mcCustomProfile.winRate;
-    const simAvgWin = mcSource === 'journal' ? parseFloat(avgWinR) || 0 : mcCustomProfile.avgWinR;
-    const simAvgLoss = mcSource === 'journal' ? Math.abs(parseFloat(avgLossR) || 0) : mcCustomProfile.avgLossR;
-    const tradesPerDay = mcSource === 'journal' ? 2 : mcCustomProfile.tradesPerDay;
-
-    const winRateDec = simWinRate / 100;
-    const initialBalance = mcParams.accountSize;
-    const totalMaxDDAmt = initialBalance * (mcParams.totalMaxDDPct / 100);
-    const dailyMaxDDAmt = initialBalance * (mcParams.dailyMaxDDPct / 100);
-
-    const p1TargetAmt = initialBalance * (mcParams.p1TargetPct / 100);
-    const p2TargetAmt = initialBalance * (mcParams.p2TargetPct / 100);
-    const p3TargetAmt = initialBalance * (mcParams.p3TargetPct / 100);
-    const executionCostPerTrade = mcParams.executionCostsEnabled
-      ? mcParams.slippageCostPerTrade + mcParams.commissionCostPerTrade + mcParams.spreadCostPerTrade
-      : 0;
-    const fundedTargetAmt = initialBalance * (mcParams.fundedTargetPct / 100);
-
-    let passedCount = 0;
-    let blownCount = 0;
-    const daysToPassList = [];
-    const daysToFirstPayoutList = [];
-    const simulatedPaths = [];
-
-    const timeframes = [
-      { days: 30, label: '30 Days' },
-      { days: 60, label: '60 Days' },
-      { days: 90, label: '90 Days' },
-      { days: 180, label: '6 Months' },
-      { days: 365, label: '1 Year' },
-      { days: 730, label: '2 Years' },
-      { days: 3650, label: '10 Years' },
-    ];
-
-    const profitsByTimeframe = Object.fromEntries(timeframes.map(({ days }) => [days, []]));
-    const payoutsByTimeframe = Object.fromEntries(timeframes.map(({ days }) => [days, []]));
-
-    for (let sim = 0; sim < mcParams.numSimulations; sim++) {
-      let stage = mcParams.passStructure === 'instant' ? 'funded' : 'p1';
-      let currentBalance = initialBalance;
-      let peakEquity = initialBalance;
-      let dayCount = 0;
-      let stageProfit = 0;
-      let p1PassedDay = 0;
-      let p2PassedDay = 0;
-      let passDay = 0;
-      let firstPayoutDay = 0;
-      let totalPayoutsReceived = 0;
-
-      const recordTimeframe = (day) => {
-        timeframes.forEach((timeframe) => {
-          if (day === timeframe.days) {
-            profitsByTimeframe[timeframe.days].push(totalPayoutsReceived - mcParams.accountCost);
-            payoutsByTimeframe[timeframe.days].push(totalPayoutsReceived);
-          }
-        });
-      };
-
-      let dailyProfits = [];
-      let isBlown = false;
-
-      const maxDays = 3650;
-      const path = [{ day: 0, balance: initialBalance, stage }];
-
-      for (let day = 1; day <= maxDays; day++) {
-        if (isBlown) {
-          path.push({ day, balance: currentBalance, stage: 'blown' });
-          recordTimeframe(day);
-          continue;
-        }
-
-        dayCount = day;
-        let dayProfit = 0;
-
-        for (let t = 0; t < tradesPerDay; t++) {
-          const riskAmt = currentBalance * (mcParams.riskPerTradePct / 100);
-          const isWin = Math.random() < winRateDec;
-
-          let tradePL = 0;
-          if (isWin) {
-            tradePL = riskAmt * simAvgWin - executionCostPerTrade;
-          } else {
-            tradePL = -riskAmt * simAvgLoss - executionCostPerTrade;
-          }
-
-          currentBalance += tradePL;
-          dayProfit += tradePL;
-          stageProfit += tradePL;
-
-          if (dayProfit < 0 && Math.abs(dayProfit) >= dailyMaxDDAmt) {
-            isBlown = true;
-            break;
-          }
-
-          const staticDrawdownAmt = initialBalance - currentBalance;
-          if (mcParams.drawdownType === 'static' && staticDrawdownAmt >= totalMaxDDAmt) {
-            isBlown = true;
-            break;
-          }
-        }
-
-        if (!isBlown && mcParams.drawdownType === 'trailing') {
-          peakEquity = Math.max(peakEquity, currentBalance);
-          if (peakEquity - currentBalance >= totalMaxDDAmt) isBlown = true;
-        }
-
-        dailyProfits.push(dayProfit);
-
-        if (isBlown) {
-          blownCount++;
-          path.push({ day, balance: currentBalance, stage: 'blown' });
-          recordTimeframe(day);
-          continue;
-        }
-
-        if (stage === 'p1') {
-          const maxSingleDay = Math.max(...dailyProfits, 0);
-          const consistencyPassed = !mcParams.evalConsistencyEnabled ||
-            (stageProfit > 0 && maxSingleDay / stageProfit <= mcParams.evalConsistencyPct / 100);
-
-          if (stageProfit >= p1TargetAmt && dayCount >= mcParams.minTradingDays && consistencyPassed) {
-            p1PassedDay = dayCount;
-            if (mcParams.passStructure === 'two_step' || mcParams.passStructure === 'three_step') {
-              stage = 'p2';
-              stageProfit = 0;
-              dailyProfits = [];
-              currentBalance = initialBalance;
-              peakEquity = initialBalance;
-            } else {
-              stage = 'funded';
-              stageProfit = 0;
-              dailyProfits = [];
-              currentBalance = initialBalance;
-              peakEquity = initialBalance;
-              passDay = dayCount;
-              passedCount++;
-            }
-          }
-        } else if (stage === 'p2') {
-          const maxSingleDay = Math.max(...dailyProfits, 0);
-          const consistencyPassed = !mcParams.evalConsistencyEnabled ||
-            (stageProfit > 0 && maxSingleDay / stageProfit <= mcParams.evalConsistencyPct / 100);
-
-          if (stageProfit >= p2TargetAmt && (dayCount - p1PassedDay) >= mcParams.minTradingDays && consistencyPassed) {
-            if (mcParams.passStructure === 'three_step') {
-              stage = 'p3';
-              p2PassedDay = dayCount;
-              stageProfit = 0;
-              dailyProfits = [];
-              currentBalance = initialBalance;
-              peakEquity = initialBalance;
-            } else {
-              stage = 'funded';
-              stageProfit = 0;
-              dailyProfits = [];
-              currentBalance = initialBalance;
-              peakEquity = initialBalance;
-              passDay = dayCount;
-              passedCount++;
-            }
-          }
-        } else if (stage === 'p3') {
-          const maxSingleDay = Math.max(...dailyProfits, 0);
-          const consistencyPassed = !mcParams.evalConsistencyEnabled ||
-            (stageProfit > 0 && maxSingleDay / stageProfit <= mcParams.evalConsistencyPct / 100);
-
-          if (stageProfit >= p3TargetAmt && (dayCount - p2PassedDay) >= mcParams.minTradingDays && consistencyPassed) {
-            stage = 'funded';
-            stageProfit = 0;
-            dailyProfits = [];
-            currentBalance = initialBalance;
-            peakEquity = initialBalance;
-            passDay = dayCount;
-            passedCount++;
-          }
-        } else if (stage === 'funded') {
-          const daysInFunded = dayCount - passDay;
-
-          if (daysInFunded >= mcParams.minDaysToPayout && daysInFunded % mcParams.minDaysToPayout === 0) {
-            const fundedProfit = currentBalance - initialBalance;
-            const maxSingleDay = Math.max(...dailyProfits, 0);
-            
-            const fundedConsistencyPassed = !mcParams.fundedConsistencyEnabled ||
-              (fundedProfit > 0 && maxSingleDay / fundedProfit <= mcParams.fundedConsistencyPct / 100);
-
-            const targetMet = mcParams.fundedTargetPct === 0 || fundedProfit >= fundedTargetAmt;
-
-            if (fundedProfit > 0 && fundedConsistencyPassed && targetMet) {
-              const payoutAmt = fundedProfit * (mcParams.payoutSplitPct / 100);
-              totalPayoutsReceived += payoutAmt;
-              if (firstPayoutDay === 0) firstPayoutDay = dayCount;
-
-              currentBalance = initialBalance;
-              peakEquity = initialBalance;
-              stageProfit = 0;
-              dailyProfits = [];
-            }
-          }
-        }
-
-        path.push({ day, balance: currentBalance, stage });
-
-        recordTimeframe(day);
+        tradePL = -riskAmt * simAvgLoss - executionCostPerTrade;
       }
 
-      if (passDay > 0) daysToPassList.push(passDay);
-      if (firstPayoutDay > 0) daysToFirstPayoutList.push(firstPayoutDay);
+      currentBalance += tradePL;
+      dayProfit += tradePL;
+      stageProfit += tradePL;
 
-      if (sim < 30) {
-        simulatedPaths.push(path);
+      if (dayProfit < 0 && Math.abs(dayProfit) >= dailyMaxDDAmt) {
+        isBlown = true;
+        break;
+      }
+
+      const staticDrawdownAmt = initialBalance - currentBalance;
+      if (mcParams.drawdownType === 'static' && staticDrawdownAmt >= totalMaxDDAmt) {
+        isBlown = true;
+        break;
       }
     }
 
-    const passRate = ((passedCount / mcParams.numSimulations) * 100).toFixed(1);
-    const avgDaysToPass = daysToPassList.length > 0
-      ? (daysToPassList.reduce((a, b) => a + b, 0) / daysToPassList.length).toFixed(0)
-      : 'N/A';
-
-    const avgDaysToPayout = daysToFirstPayoutList.length > 0
-      ? (daysToFirstPayoutList.reduce((a, b) => a + b, 0) / daysToFirstPayoutList.length).toFixed(0)
-      : 'N/A';
-
-    const timeframeSummary = timeframes.map((tf) => {
-      const profits = profitsByTimeframe[tf.days];
-      const payouts = payoutsByTimeframe[tf.days];
-      const avgNetProfit = profits.length > 0 ? (profits.reduce((a, b) => a + b, 0) / profits.length).toFixed(0) : 0;
-      const avgPayout = payouts.length > 0 ? (payouts.reduce((a, b) => a + b, 0) / payouts.length).toFixed(0) : 0;
-      return {
-        label: tf.label,
-        avgNetProfit: parseFloat(avgNetProfit),
-        avgPayout: parseFloat(avgPayout),
-      };
-    });
-
-    setMcResults({
-      passRate,
-      blownCount,
-      avgDaysToPass,
-      avgDaysToPayout,
-      timeframeSummary,
-      simulatedPaths,
-    });
-  };
-
-  const topDownProfileData = topDownState.profileId === activeProfileId ? topDownState.data : {};
-  const topDownCards = [...(Array.isArray(topDownProfileData.cards) ? topDownProfileData.cards : [])]
-    .filter((card) => card.date === topDownSelectedDate)
-    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.id).localeCompare(String(a.id)));
-  const openTopDownCardForm = (card = null) => {
-    setTopDownCardForm(card ? { ...card } : {
-      id: null,
-      date: topDownSelectedDate || getLocalDateString(),
-      title: '',
-      timeframe: '',
-      imageData: '',
-      imageName: '',
-      tradingViewUrl: '',
-      referenceUrl: '',
-      description: '',
-    });
-    setIsTopDownCardModalOpen(true);
-  };
-
-  const handleTopDownImageChange = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    try {
-      const imageData = await compressAnalysisImage(file);
-      setTopDownCardForm((current) => ({ ...current, imageData, imageName: file.name }));
-    } catch (error) {
-      setTopDownStorageError(error.message || 'Could not load that image.');
+    if (!isBlown && mcParams.drawdownType === 'trailing') {
+      peakEquity = Math.max(peakEquity, currentBalance);
+      if (peakEquity - currentBalance >= totalMaxDDAmt) isBlown = true;
     }
-  };
 
-  const saveTopDownCard = (event) => {
-    event.preventDefault();
-    const savedCard = { ...topDownCardForm, id: topDownCardForm.id || `analysis-${Date.now()}` };
-    setTopDownState((current) => {
-      const currentData = current.profileId === activeProfileId ? current.data : { cards: [] };
-      const cards = Array.isArray(currentData.cards) ? currentData.cards : [];
-      const nextCards = savedCard.id === topDownCardForm.id
-        ? cards.map((card) => card.id === savedCard.id ? savedCard : card)
-        : [savedCard, ...cards];
-      return { profileId: activeProfileId, data: { ...currentData, cards: nextCards } };
-    });
-    setTopDownSelectedDate(savedCard.date);
-    setTopDownStorageError('');
-    setIsTopDownCardModalOpen(false);
-  };
+    dailyProfits.push(dayProfit);
 
-  const deleteTopDownCard = (cardId) => {
-    if (!window.confirm('Delete this analysis card?')) return;
-    setTopDownState((current) => {
-      const currentData = current.profileId === activeProfileId ? current.data : { cards: [] };
-      return {
-        profileId: activeProfileId,
-        data: { ...currentData, cards: (currentData.cards || []).filter((card) => card.id !== cardId) },
-      };
-    });
-  };
+    if (isBlown) {
+      blownCount++;
+      path.push({ day, balance: currentBalance, stage: 'blown' });
+      recordTimeframe(day);
+      continue;
+    }
 
-  const handleOpenAddModal = () => {
-    setTradeEntryMode('standard');
-    setFormData({
-      ...EMPTY_FORM,
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-    });
-    setIsModalOpen(true);
-  };
+    if (stage === 'p1') {
+      const maxSingleDay = Math.max(...dailyProfits, 0);
+      const consistencyPassed = !mcParams.evalConsistencyEnabled ||
+        (stageProfit > 0 && maxSingleDay / stageProfit <= mcParams.evalConsistencyPct / 100);
 
-  const handleAddTradeOnDate = (date) => {
-    setTradeEntryMode('standard');
-    setFormData({
-      ...EMPTY_FORM,
-      date,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-    });
-    setIsModalOpen(true);
-  };
+      if (stageProfit >= p1TargetAmt && dayCount >= mcParams.minTradingDays && consistencyPassed) {
+        p1PassedDay = dayCount;
+        if (mcParams.passStructure === 'two_step' || mcParams.passStructure === 'three_step') {
+          stage = 'p2';
+          stageProfit = 0;
+          dailyProfits = [];
+          currentBalance = initialBalance;
+          peakEquity = initialBalance;
+        } else {
+          stage = 'funded';
+          stageProfit = 0;
+          dailyProfits = [];
+          currentBalance = initialBalance;
+          peakEquity = initialBalance;
+          passDay = dayCount;
+          passedCount++;
+        }
+      }
+    } else if (stage === 'p2') {
+      const maxSingleDay = Math.max(...dailyProfits, 0);
+      const consistencyPassed = !mcParams.evalConsistencyEnabled ||
+        (stageProfit > 0 && maxSingleDay / stageProfit <= mcParams.evalConsistencyPct / 100);
 
-  const handleEditTrade = (trade) => {
-    setTradeEntryMode(
-      trade.plannedEntry || trade.plannedStopLoss || trade.plannedTakeProfit || trade.plannedScreenshotUrl
-        || trade.plannedTradingViewUrl
-        ? 'compare'
-        : 'standard'
-    );
-    setFormData({ ...EMPTY_FORM, ...trade });
-    setIsModalOpen(true);
-  };
+      if (stageProfit >= p2TargetAmt && (dayCount - p1PassedDay) >= mcParams.minTradingDays && consistencyPassed) {
+        if (mcParams.passStructure === 'three_step') {
+          stage = 'p3';
+          p2PassedDay = dayCount;
+          stageProfit = 0;
+          dailyProfits = [];
+          currentBalance = initialBalance;
+          peakEquity = initialBalance;
+        } else {
+          stage = 'funded';
+          stageProfit = 0;
+          dailyProfits = [];
+          currentBalance = initialBalance;
+          peakEquity = initialBalance;
+          passDay = dayCount;
+          passedCount++;
+        }
+      }
+    } else if (stage === 'p3') {
+      const maxSingleDay = Math.max(...dailyProfits, 0);
+      const consistencyPassed = !mcParams.evalConsistencyEnabled ||
+        (stageProfit > 0 && maxSingleDay / stageProfit <= mcParams.evalConsistencyPct / 100);
 
-  const handleDeleteTrade = (id) => {
-    if (window.confirm('Are you sure you want to delete this trade entry?')) {
-      setTrades((prev) => prev.filter((t) => t.id !== id));
-      if (selectedDayTrades) {
-        const remainingForDay = trades.filter((t) => t.id !== id && t.date === selectedDayTrades.dateStr);
-        if (remainingForDay.length === 0) setSelectedDayTrades(null);
+      if (stageProfit >= p3TargetAmt && (dayCount - p2PassedDay) >= mcParams.minTradingDays && consistencyPassed) {
+        stage = 'funded';
+        stageProfit = 0;
+        dailyProfits = [];
+        currentBalance = initialBalance;
+        peakEquity = initialBalance;
+        passDay = dayCount;
+        passedCount++;
+      }
+    } else if (stage === 'funded') {
+      const daysInFunded = dayCount - passDay;
+
+      if (daysInFunded >= mcParams.minDaysToPayout && daysInFunded % mcParams.minDaysToPayout === 0) {
+        const fundedProfit = currentBalance - initialBalance;
+        const maxSingleDay = Math.max(...dailyProfits, 0);
+        
+        const fundedConsistencyPassed = !mcParams.fundedConsistencyEnabled ||
+          (fundedProfit > 0 && maxSingleDay / fundedProfit <= mcParams.fundedConsistencyPct / 100);
+
+        const targetMet = mcParams.fundedTargetPct === 0 || fundedProfit >= fundedTargetAmt;
+
+        if (fundedProfit > 0 && fundedConsistencyPassed && targetMet) {
+          const payoutAmt = fundedProfit * (mcParams.payoutSplitPct / 100);
+          totalPayoutsReceived += payoutAmt;
+          if (firstPayoutDay === 0) firstPayoutDay = dayCount;
+
+          currentBalance = initialBalance;
+          peakEquity = initialBalance;
+          stageProfit = 0;
+          dailyProfits = [];
+        }
       }
     }
+
+    path.push({ day, balance: currentBalance, stage });
+
+    recordTimeframe(day);
+  }
+
+  if (passDay > 0) daysToPassList.push(passDay);
+  if (firstPayoutDay > 0) daysToFirstPayoutList.push(firstPayoutDay);
+
+  if (sim < 30) {
+    simulatedPaths.push(path);
+  }
+}
+
+const passRate = ((passedCount / mcParams.numSimulations) * 100).toFixed(1);
+const avgDaysToPass = daysToPassList.length > 0
+  ? (daysToPassList.reduce((a, b) => a + b, 0) / daysToPassList.length).toFixed(0)
+  : 'N/A';
+
+const avgDaysToPayout = daysToFirstPayoutList.length > 0
+  ? (daysToFirstPayoutList.reduce((a, b) => a + b, 0) / daysToFirstPayoutList.length).toFixed(0)
+  : 'N/A';
+
+const timeframeSummary = timeframes.map((tf) => {
+  const profits = profitsByTimeframe[tf.days];
+  const payouts = payoutsByTimeframe[tf.days];
+  const avgNetProfit = profits.length > 0 ? (profits.reduce((a, b) => a + b, 0) / profits.length).toFixed(0) : 0;
+  const avgPayout = payouts.length > 0 ? (payouts.reduce((a, b) => a + b, 0) / payouts.length).toFixed(0) : 0;
+  return {
+    label: tf.label,
+    avgNetProfit: parseFloat(avgNetProfit),
+    avgPayout: parseFloat(avgPayout),
   };
+});
 
-  const handleTagToggle = (tagLabel) => {
-    setFormData((prev) => {
-      const current = prev.psychology || [];
-      const exists = current.includes(tagLabel);
-      return {
-        ...prev,
-        psychology: exists ? current.filter((t) => t !== tagLabel) : [...current, tagLabel],
-      };
-    });
-  };
+setMcResults({
+  passRate,
+  blownCount,
+  avgDaysToPass,
+  avgDaysToPayout,
+  timeframeSummary,
+  simulatedPaths,
+});
 
-  const handleMistakeToggle = (tagLabel) => {
-    setFormData((prev) => {
-      const current = prev.mistakes || [];
-      const exists = current.includes(tagLabel);
-      return {
-        ...prev,
-        mistakes: exists ? current.filter((tag) => tag !== tagLabel) : [...current, tagLabel],
-      };
-    });
-  };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (formData.id) {
-      setTrades((prev) =>
-        prev.map((t) =>
-          t.id === formData.id
-            ? { ...formData, resultR: parseFloat(formData.resultR) || 0 }
-            : t
-        )
-      );
-      if (selectedDayTrades && formData.date !== selectedDayTrades.dateStr) {
-        setSelectedDayTrades({ dateStr: formData.date });
-      }
-    } else {
-      const newTrade = {
-        ...formData,
-        id: Date.now().toString(),
-        resultR: parseFloat(formData.resultR) || 0,
-      };
-      setTrades([newTrade, ...trades]);
-    }
+};
 
-    setIsModalOpen(false);
-    setFormData(EMPTY_FORM);
-  };
+const topDownProfileData = topDownState.profileId === activeProfileId ? topDownState.data : {};
+const topDownCards = [...(Array.isArray(topDownProfileData.cards) ? topDownProfileData.cards : [])]
+.filter((card) => card.date === topDownSelectedDate)
+.sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.id).localeCompare(String(a.id)));
+const openTopDownCardForm = (card = null) => {
+setTopDownCardForm(card ? { ...card } : {
+id: null,
+date: topDownSelectedDate || getLocalDateString(),
+title: '',
+timeframe: '',
+imageData: '',
+imageName: '',
+tradingViewUrl: '',
+referenceUrl: '',
+description: '',
+});
+setIsTopDownCardModalOpen(true);
+};
 
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
+const handleTopDownImageChange = async (event) => {
+const file = event.target.files?.[0];
+event.target.value = '';
+if (!file) return;
+try {
+const imageData = await compressAnalysisImage(file);
+setTopDownCardForm((current) => ({ ...current, imageData, imageName: file.name }));
+} catch (error) {
+setTopDownStorageError(error.message || 'Could not load that image.');
+}
+};
 
-  const firstDayOfMonth = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+const saveTopDownCard = (event) => {
+event.preventDefault();
+const savedCard = { ...topDownCardForm, id: topDownCardForm.id || analysis-${Date.now()} };
+setTopDownState((current) => {
+const currentData = current.profileId === activeProfileId ? current.data : { cards: [] };
+const cards = Array.isArray(currentData.cards) ? currentData.cards : [];
+const nextCards = savedCard.id === topDownCardForm.id
+? cards.map((card) => card.id === savedCard.id ? savedCard : card)
+: [savedCard, ...cards];
+return { profileId: activeProfileId, data: { ...currentData, cards: nextCards } };
+});
+setTopDownSelectedDate(savedCard.date);
+setTopDownStorageError('');
+setIsTopDownCardModalOpen(false);
+};
 
-  const changeMonth = (delta) => {
-    setCurrentDate(new Date(year, month + delta, 1));
-  };
+const deleteTopDownCard = (cardId) => {
+if (!window.confirm('Delete this analysis card?')) return;
+setTopDownState((current) => {
+const currentData = current.profileId === activeProfileId ? current.data : { cards: [] };
+return {
+profileId: activeProfileId,
+data: { ...currentData, cards: (currentData.cards || []).filter((card) => card.id !== cardId) },
+};
+});
+};
 
-  const tradesByDate = trades.reduce((acc, trade) => {
-    acc[trade.date] = acc[trade.date] || [];
-    acc[trade.date].push(trade);
-    return acc;
-  }, {});
-  const dashboardMonthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
-  const dashboardMonthTrades = trades.filter((trade) => (trade.date || '').startsWith(`${dashboardMonthPrefix}-`));
-  const dashboardMonthDays = Object.entries(tradesByDate)
-    .filter(([date]) => date.startsWith(`${dashboardMonthPrefix}-`))
-    .map(([date, dayTrades]) => ({
-      date,
-      trades: dayTrades,
-      totalR: dayTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0),
-    }));
-  const dashboardMonthNetR = dashboardMonthTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
-  const dashboardBestDay = dashboardMonthDays.reduce((best, day) => !best || day.totalR > best.totalR ? day : best, null);
-  const dashboardRedDays = dashboardMonthDays.filter((day) => day.totalR < 0).length;
-  const dashboardMistakeTradeCount = dashboardMonthTrades.filter((trade) => (trade.mistakes || []).length > 0).length;
-  const dashboardDefaultDate = dashboardMonthTrades[0]?.date || `${dashboardMonthPrefix}-${String(new Date().getDate()).padStart(2, '0')}`;
-  const dashboardReviewDate = dashboardSelectedDate.startsWith(`${dashboardMonthPrefix}-`)
-    ? dashboardSelectedDate
-    : dashboardDefaultDate;
-  const dashboardReviewTrades = (tradesByDate[dashboardReviewDate] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-  const dashboardMistakeSummary = MISTAKE_TAGS.map((tag) => {
-    const tagged = dashboardMonthTrades.filter((trade) => (trade.mistakes || []).includes(tag));
-    const totalR = tagged.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
-    return { tag, count: tagged.length, totalR, avgR: tagged.length ? totalR / tagged.length : 0 };
-  }).filter((entry) => entry.count > 0).sort((a, b) => b.count - a.count);
-  const dashboardMindsetSummary = PSYCHOLOGY_OPTIONS.map(({ label }) => {
-    const tagged = dashboardMonthTrades.filter((trade) => (trade.psychology || []).includes(label));
-    const totalR = tagged.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
-    return { label, count: tagged.length, avgR: tagged.length ? totalR / tagged.length : 0 };
-  }).filter((entry) => entry.count > 0).sort((a, b) => b.avgR - a.avgR);
-  const quickInstrumentSet = new Set(INSTRUMENT_PRESETS.flatMap((group) => group.assets));
-  const performanceCustomInstruments = [...new Set(
-    trades.map((trade) => (trade.instrument || '').trim()).filter((instrument) => instrument && !quickInstrumentSet.has(instrument))
-  )].sort();
-  const performanceTrades = trades.filter((trade) => (
-    (performanceFilters.instrument === 'all' || trade.instrument === performanceFilters.instrument) &&
-    (performanceFilters.direction === 'all' || trade.direction === performanceFilters.direction) &&
-    (performanceFilters.timeOfDay === 'all' || getTimeOfDayBucket(trade.time) === performanceFilters.timeOfDay)
-  ));
-  const performanceWins = performanceTrades.filter((trade) => (parseFloat(trade.resultR) || 0) > 0);
-  const performanceLosses = performanceTrades.filter((trade) => (parseFloat(trade.resultR) || 0) < 0);
-  const performanceTotalR = performanceTrades.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0);
-  const performanceWinRate = performanceTrades.length > 0
-    ? Math.round((performanceWins.length / performanceTrades.length) * 100)
-    : 0;
-  const performanceExpectancy = performanceTrades.length > 0
-    ? (performanceTotalR / performanceTrades.length).toFixed(2)
-    : '0.00';
-  const performanceGrossWins = performanceWins.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0);
-  const performanceGrossLosses = Math.abs(performanceLosses.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0));
-  const performanceProfitFactor = performanceGrossLosses > 0
-    ? (performanceGrossWins / performanceGrossLosses).toFixed(2)
-    : performanceGrossWins > 0 ? '∞' : '—';
-  const selectedDayTradeList = selectedDayTrades
-    ? trades.filter((trade) => trade.date === selectedDayTrades.dateStr).sort((a, b) => (a.time || '').localeCompare(b.time || ''))
-    : [];
+const handleOpenAddModal = () => {
+setTradeEntryMode('standard');
+setFormData({
+...EMPTY_FORM,
+date: new Date().toISOString().split('T')[0],
+time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+});
+setIsModalOpen(true);
+};
 
-  const tradeInstrumentOptions = [...new Set([
-    ...INSTRUMENT_PRESETS.flatMap((group) => group.assets),
-    ...trades.map((trade) => (trade.instrument || '').trim()).filter(Boolean),
-  ])];
-  const tradePsychologyOptions = [...new Set([
-    ...PSYCHOLOGY_OPTIONS.map((option) => option.label),
-    ...trades.flatMap((trade) => trade.psychology || []),
-  ])];
-  const filteredTrades = trades.filter((trade) => {
-    const term = searchTerm.trim().toLowerCase();
-    const today = new Date();
-    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const monthStartKey = `${todayKey.slice(0, 7)}-01`;
-    const cutoff = new Date(today);
-    if (tradeFilters.period === '30d') cutoff.setDate(cutoff.getDate() - 30);
-    if (tradeFilters.period === '90d') cutoff.setDate(cutoff.getDate() - 90);
-    const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
-    const searchable = [trade.instrument, trade.setup, trade.direction, trade.notes, ...(trade.psychology || []), ...(trade.mistakes || [])]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-    return (!term || searchable.includes(term)) &&
-      (tradeFilters.instrument === 'all' || trade.instrument === tradeFilters.instrument) &&
-      (tradeFilters.direction === 'all' || trade.direction === tradeFilters.direction) &&
-      (tradeFilters.timeOfDay === 'all' || getTimeOfDayBucket(trade.time) === tradeFilters.timeOfDay) &&
-      (tradeFilters.period === 'all' || (tradeFilters.period === 'month' ? trade.date >= monthStartKey && trade.date <= todayKey : trade.date >= cutoffKey && trade.date <= todayKey)) &&
-      (tradeFilters.psychology === 'all' || (trade.psychology || []).includes(tradeFilters.psychology)) &&
-      (tradeFilters.mistake === 'all' || (trade.mistakes || []).includes(tradeFilters.mistake));
-  });
-  const labNetR = filteredTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
-  const labWins = filteredTrades.filter((trade) => (parseFloat(trade.resultR) || 0) > 0);
-  const labLosses = filteredTrades.filter((trade) => (parseFloat(trade.resultR) || 0) < 0);
-  const labWinRate = filteredTrades.length ? Math.round((labWins.length / filteredTrades.length) * 100) : 0;
-  const labExpectancy = filteredTrades.length ? labNetR / filteredTrades.length : 0;
-  const labGrossWins = labWins.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
-  const labGrossLosses = Math.abs(labLosses.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0));
-  const labProfitFactor = labGrossLosses ? (labGrossWins / labGrossLosses).toFixed(2) : labGrossWins ? '∞' : '—';
-  const labInstrumentStats = Object.values(filteredTrades.reduce((stats, trade) => {
-    const symbol = (trade.instrument || 'Unknown').trim();
-    stats[symbol] = stats[symbol] || { symbol, netR: 0, count: 0 };
-    stats[symbol].netR += parseFloat(trade.resultR) || 0;
-    stats[symbol].count += 1;
-    return stats;
-  }, {})).sort((a, b) => b.netR - a.netR);
-  const labMaxInstrumentR = Math.max(1, ...labInstrumentStats.map((item) => Math.abs(item.netR)));
-  const labChartTrades = [...filteredTrades].sort((a, b) => new Date(`${a.date}T${a.time || '00:00'}`) - new Date(`${b.date}T${b.time || '00:00'}`));
-  const labChartMaxR = Math.max(1, ...labChartTrades.map((trade) => Math.abs(parseFloat(trade.resultR) || 0)));
-  const tradesPerPage = 10;
-  const totalTradePages = Math.max(1, Math.ceil(filteredTrades.length / tradesPerPage));
-  const currentTradePage = Math.min(tradePage, totalTradePages);
-  const paginatedTrades = filteredTrades.slice((currentTradePage - 1) * tradesPerPage, currentTradePage * tradesPerPage);
-  const getTradeCosts = (trade) => (parseFloat(trade.commissionCost) || 0) + (parseFloat(trade.spreadCost) || 0);
-  const totalLoggedTradeCosts = trades.reduce((sum, trade) => sum + getTradeCosts(trade), 0);
-  const mistakePerformance = MISTAKE_TAGS.map((tag) => {
-    const taggedTrades = trades.filter((trade) => (trade.mistakes || []).includes(tag));
-    const netR = taggedTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
-    const wins = taggedTrades.filter((trade) => (parseFloat(trade.resultR) || 0) > 0).length;
-    return {
-      tag,
-      count: taggedTrades.length,
-      winRate: taggedTrades.length ? Math.round((wins / taggedTrades.length) * 100) : 0,
-      netR,
-      avgR: taggedTrades.length ? netR / taggedTrades.length : 0,
-    };
-  }).filter((stat) => stat.count > 0);
-  const sessionDefinitions = [
-    { name: 'Asia', color: '#38bdf8' },
-    { name: 'London', color: '#f59e0b' },
-    { name: 'New York', color: '#a78bfa' },
-  ];
-  const dashboardSessionStats = sessionDefinitions.map((session, index) => {
-    const sessionTrades = trades.filter((trade) => {
-      const entry = new Date(`${trade.date}T${trade.time || '00:00'}`);
-      const utcHour = entry.getUTCHours();
-      return index === 0 ? utcHour < 8 : index === 1 ? utcHour >= 8 && utcHour < 16 : utcHour >= 16;
-    });
-    return {
-      ...session,
-      count: sessionTrades.length,
-      netR: sessionTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0),
-    };
-  });
-  const dashboardSessionCount = dashboardSessionStats.reduce((sum, session) => sum + session.count, 0);
-  let sessionAngle = 0;
-  const dashboardSessionGradient = dashboardSessionCount
-    ? `conic-gradient(${dashboardSessionStats.map((session) => {
-      const start = sessionAngle;
-      sessionAngle += session.count / dashboardSessionCount * 360;
-      return `${session.color} ${start}deg ${sessionAngle}deg`;
-    }).join(', ')})`
-    : 'conic-gradient(#1c2436 0deg 360deg)';
-  return (
-    <div className={`app-container ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`} data-theme={theme}>
-      {/* Sidebar Navigation & Profile Selector */}
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="dot"></span>
-          <div className="brand-copy">
-            <h2 className="brand-title">TradeLog</h2>
-            <p className="brand-sub">Personal Journal</p>
-          </div>
-          <button
-            className="sidebar-toggle"
-            type="button"
-            onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
-            aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {isSidebarCollapsed ? '›' : '‹'}
-          </button>
-        </div>
+const handleAddTradeOnDate = (date) => {
+setTradeEntryMode('standard');
+setFormData({
+...EMPTY_FORM,
+date,
+time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+});
+setIsModalOpen(true);
+};
 
-        {/* Profile Switcher Box */}
-        {!isSidebarCollapsed && <div className="profile-selector-card">
-          <span className="profile-label">Active Journal Profile</span>
-          <select
-            className="profile-select"
-            value={activeProfileId}
-            onChange={(e) => switchActiveProfile(e.target.value)}
-          >
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <button
-            className="manage-profiles-btn"
-            onClick={() => setIsProfileModalOpen(true)}
-          >
-            + Manage Profiles
-          </button>
-        </div>}
-        {isSidebarCollapsed && (
-          <button
-            className="sidebar-profile-icon"
-            type="button"
-            title={`Active profile: ${currentProfileObj.name} · Manage profiles`}
-            aria-label={`Manage profiles. Active profile: ${currentProfileObj.name}`}
-            onClick={() => setIsProfileModalOpen(true)}
-          >
-            {currentProfileObj.name.slice(0, 1).toUpperCase()}
-          </button>
-        )}
+const handleEditTrade = (trade) => {
+setTradeEntryMode(
+trade.plannedEntry || trade.plannedStopLoss || trade.plannedTakeProfit || trade.plannedScreenshotUrl
+|| trade.plannedTradingViewUrl
+? 'compare'
+: 'standard'
+);
+setFormData({ ...EMPTY_FORM, ...trade });
+setIsModalOpen(true);
+};
 
-        <nav className="nav-menu">
-          <button
-            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setActiveTab('dashboard')}
-            title="Dashboard"
-          >
-            <span className="nav-icon" aria-hidden="true">📊</span><span className="nav-label">Dashboard</span>
-          </button>
-          <button
-            className={`nav-item ${activeTab === 'calendar' ? 'active' : ''}`}
-            onClick={() => setActiveTab('calendar')}
-            title="Calendar"
-          >
-            <span className="nav-icon" aria-hidden="true">📅</span><span className="nav-label">Calendar</span>
-          </button>
-          <button
-            className={`nav-item ${activeTab === 'trades' ? 'active' : ''}`}
-            onClick={() => setActiveTab('trades')}
-            title="Trades"
-          >
-            <span className="nav-icon" aria-hidden="true">📒</span><span className="nav-label">Trades</span>
-          </button>
-          <button
-            className={`nav-item ${activeTab === 'topdown' ? 'active' : ''}`}
-            onClick={() => setActiveTab('topdown')}
-            title="Top Down Analysis"
-          >
-            <span className="nav-icon" aria-hidden="true">🔎</span><span className="nav-label">Top Down Analysis</span>
-          </button>
-          <button
-            className={`nav-item ${activeTab === 'simulator' ? 'active' : ''}`}
-            onClick={() => setActiveTab('simulator')}
-            title="Monte Carlo"
-          >
-            <span className="nav-icon" aria-hidden="true">🎲</span><span className="nav-label">Monte Carlo</span>
-          </button>
-        </nav>
-      </aside>
+const handleDeleteTrade = (id) => {
+if (window.confirm('Are you sure you want to delete this trade entry?')) {
+setTrades((prev) => prev.filter((t) => t.id !== id));
+if (selectedDayTrades) {
+const remainingForDay = trades.filter((t) => t.id !== id && t.date === selectedDayTrades.dateStr);
+if (remainingForDay.length === 0) setSelectedDayTrades(null);
+}
+}
+};
 
-      {/* Main Area */}
-      <main className="main-content">
-        <header className="header-bar">
-          <div>
-            <span className="section-subtitle">
-              JOURNAL PROFILE: <span className="text-amber">{currentProfileObj.name}</span>
+const handleTagToggle = (tagLabel) => {
+setFormData((prev) => {
+const current = prev.psychology || [];
+const exists = current.includes(tagLabel);
+return {
+...prev,
+psychology: exists ? current.filter((t) => t !== tagLabel) : [...current, tagLabel],
+};
+});
+};
+
+const handleMistakeToggle = (tagLabel) => {
+setFormData((prev) => {
+const current = prev.mistakes || [];
+const exists = current.includes(tagLabel);
+return {
+...prev,
+mistakes: exists ? current.filter((tag) => tag !== tagLabel) : [...current, tagLabel],
+};
+});
+};
+
+const handleSubmit = (e) => {
+e.preventDefault();
+if (formData.id) {
+setTrades((prev) =>
+prev.map((t) =>
+t.id === formData.id
+? { ...formData, resultR: parseFloat(formData.resultR) || 0 }
+: t
+)
+);
+if (selectedDayTrades && formData.date !== selectedDayTrades.dateStr) {
+setSelectedDayTrades({ dateStr: formData.date });
+}
+} else {
+const newTrade = {
+...formData,
+id: Date.now().toString(),
+resultR: parseFloat(formData.resultR) || 0,
+};
+setTrades([newTrade, ...trades]);
+}
+
+setIsModalOpen(false);
+setFormData(EMPTY_FORM);
+
+
+};
+
+const year = currentDate.getFullYear();
+const month = currentDate.getMonth();
+const monthNames = [
+'January', 'February', 'March', 'April', 'May', 'June',
+'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+const firstDayOfMonth = new Date(year, month, 1).getDay();
+const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+const changeMonth = (delta) => {
+setCurrentDate(new Date(year, month + delta, 1));
+};
+
+const tradesByDate = trades.reduce((acc, trade) => {
+acc[trade.date] = acc[trade.date] || [];
+acc[trade.date].push(trade);
+return acc;
+}, {});
+const dashboardMonthPrefix = ${year}-${String(month + 1).padStart(2, '0')};
+const dashboardMonthTrades = trades.filter((trade) => (trade.date || '').startsWith(${dashboardMonthPrefix}-));
+const dashboardMonthDays = Object.entries(tradesByDate)
+.filter(([date]) => date.startsWith(${dashboardMonthPrefix}-))
+.map(([date, dayTrades]) => ({
+date,
+trades: dayTrades,
+totalR: dayTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0),
+}));
+const dashboardMonthNetR = dashboardMonthTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
+const dashboardBestDay = dashboardMonthDays.reduce((best, day) => !best || day.totalR > best.totalR ? day : best, null);
+const dashboardRedDays = dashboardMonthDays.filter((day) => day.totalR < 0).length;
+const dashboardMistakeTradeCount = dashboardMonthTrades.filter((trade) => (trade.mistakes || []).length > 0).length;
+const dashboardDefaultDate = dashboardMonthTrades[0]?.date || ${dashboardMonthPrefix}-${String(new Date().getDate()).padStart(2, '0')};
+const dashboardReviewDate = dashboardSelectedDate.startsWith(${dashboardMonthPrefix}-)
+? dashboardSelectedDate
+: dashboardDefaultDate;
+const dashboardReviewTrades = (tradesByDate[dashboardReviewDate] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+const dashboardMistakeSummary = MISTAKE_TAGS.map((tag) => {
+const tagged = dashboardMonthTrades.filter((trade) => (trade.mistakes || []).includes(tag));
+const totalR = tagged.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
+return { tag, count: tagged.length, totalR, avgR: tagged.length ? totalR / tagged.length : 0 };
+}).filter((entry) => entry.count > 0).sort((a, b) => b.count - a.count);
+const dashboardMindsetSummary = PSYCHOLOGY_OPTIONS.map(({ label }) => {
+const tagged = dashboardMonthTrades.filter((trade) => (trade.psychology || []).includes(label));
+const totalR = tagged.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
+return { label, count: tagged.length, avgR: tagged.length ? totalR / tagged.length : 0 };
+}).filter((entry) => entry.count > 0).sort((a, b) => b.avgR - a.avgR);
+const quickInstrumentSet = new Set(INSTRUMENT_PRESETS.flatMap((group) => group.assets));
+const performanceCustomInstruments = [...new Set(
+trades.map((trade) => (trade.instrument || '').trim()).filter((instrument) => instrument && !quickInstrumentSet.has(instrument))
+)].sort();
+const performanceTrades = trades.filter((trade) => (
+(performanceFilters.instrument === 'all' || trade.instrument === performanceFilters.instrument) &&
+(performanceFilters.direction === 'all' || trade.direction === performanceFilters.direction) &&
+(performanceFilters.timeOfDay === 'all' || getTimeOfDayBucket(trade.time) === performanceFilters.timeOfDay)
+));
+const performanceWins = performanceTrades.filter((trade) => (parseFloat(trade.resultR) || 0) > 0);
+const performanceLosses = performanceTrades.filter((trade) => (parseFloat(trade.resultR) || 0) < 0);
+const performanceTotalR = performanceTrades.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0);
+const performanceWinRate = performanceTrades.length > 0
+? Math.round((performanceWins.length / performanceTrades.length) * 100)
+: 0;
+const performanceExpectancy = performanceTrades.length > 0
+? (performanceTotalR / performanceTrades.length).toFixed(2)
+: '0.00';
+const performanceGrossWins = performanceWins.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0);
+const performanceGrossLosses = Math.abs(performanceLosses.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0));
+const performanceProfitFactor = performanceGrossLosses > 0
+? (performanceGrossWins / performanceGrossLosses).toFixed(2)
+: performanceGrossWins > 0 ? '∞' : '—';
+const selectedDayTradeList = selectedDayTrades
+? trades.filter((trade) => trade.date === selectedDayTrades.dateStr).sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+: [];
+
+const tradeInstrumentOptions = [...new Set([
+...INSTRUMENT_PRESETS.flatMap((group) => group.assets),
+...trades.map((trade) => (trade.instrument || '').trim()).filter(Boolean),
+])];
+const tradePsychologyOptions = [...new Set([
+...PSYCHOLOGY_OPTIONS.map((option) => option.label),
+...trades.flatMap((trade) => trade.psychology || []),
+])];
+const filteredTrades = trades.filter((trade) => {
+const term = searchTerm.trim().toLowerCase();
+const today = new Date();
+const todayKey = ${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')};
+const monthStartKey = ${todayKey.slice(0, 7)}-01;
+const cutoff = new Date(today);
+if (tradeFilters.period === '30d') cutoff.setDate(cutoff.getDate() - 30);
+if (tradeFilters.period === '90d') cutoff.setDate(cutoff.getDate() - 90);
+const cutoffKey = ${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')};
+const searchable = [trade.instrument, trade.setup, trade.direction, trade.notes, ...(trade.psychology || []), ...(trade.mistakes || [])]
+.filter(Boolean)
+.join(' ')
+.toLowerCase();
+return (!term || searchable.includes(term)) &&
+(tradeFilters.instrument === 'all' || trade.instrument === tradeFilters.instrument) &&
+(tradeFilters.direction === 'all' || trade.direction === tradeFilters.direction) &&
+(tradeFilters.timeOfDay === 'all' || getTimeOfDayBucket(trade.time) === tradeFilters.timeOfDay) &&
+(tradeFilters.period === 'all' || (tradeFilters.period === 'month' ? trade.date >= monthStartKey && trade.date <= todayKey : trade.date >= cutoffKey && trade.date <= todayKey)) &&
+(tradeFilters.psychology === 'all' || (trade.psychology || []).includes(tradeFilters.psychology)) &&
+(tradeFilters.mistake === 'all' || (trade.mistakes || []).includes(tradeFilters.mistake));
+});
+const labNetR = filteredTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
+const labWins = filteredTrades.filter((trade) => (parseFloat(trade.resultR) || 0) > 0);
+const labLosses = filteredTrades.filter((trade) => (parseFloat(trade.resultR) || 0) < 0);
+const labWinRate = filteredTrades.length ? Math.round((labWins.length / filteredTrades.length) * 100) : 0;
+const labExpectancy = filteredTrades.length ? labNetR / filteredTrades.length : 0;
+const labGrossWins = labWins.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
+const labGrossLosses = Math.abs(labLosses.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0));
+const labProfitFactor = labGrossLosses ? (labGrossWins / labGrossLosses).toFixed(2) : labGrossWins ? '∞' : '—';
+const labInstrumentStats = Object.values(filteredTrades.reduce((stats, trade) => {
+const symbol = (trade.instrument || 'Unknown').trim();
+stats[symbol] = stats[symbol] || { symbol, netR: 0, count: 0 };
+stats[symbol].netR += parseFloat(trade.resultR) || 0;
+stats[symbol].count += 1;
+return stats;
+}, {})).sort((a, b) => b.netR - a.netR);
+const labMaxInstrumentR = Math.max(1, ...labInstrumentStats.map((item) => Math.abs(item.netR)));
+const labChartTrades = [...filteredTrades].sort((a, b) => new Date(${a.date}T${a.time || '00:00'}) - new Date(${b.date}T${b.time || '00:00'}));
+const labChartMaxR = Math.max(1, ...labChartTrades.map((trade) => Math.abs(parseFloat(trade.resultR) || 0)));
+const tradesPerPage = 10;
+const totalTradePages = Math.max(1, Math.ceil(filteredTrades.length / tradesPerPage));
+const currentTradePage = Math.min(tradePage, totalTradePages);
+const paginatedTrades = filteredTrades.slice((currentTradePage - 1) * tradesPerPage, currentTradePage * tradesPerPage);
+const getTradeCosts = (trade) => (parseFloat(trade.commissionCost) || 0) + (parseFloat(trade.spreadCost) || 0);
+const totalLoggedTradeCosts = trades.reduce((sum, trade) => sum + getTradeCosts(trade), 0);
+const mistakePerformance = MISTAKE_TAGS.map((tag) => {
+const taggedTrades = trades.filter((trade) => (trade.mistakes || []).includes(tag));
+const netR = taggedTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
+const wins = taggedTrades.filter((trade) => (parseFloat(trade.resultR) || 0) > 0).length;
+return {
+tag,
+count: taggedTrades.length,
+winRate: taggedTrades.length ? Math.round((wins / taggedTrades.length) * 100) : 0,
+netR,
+avgR: taggedTrades.length ? netR / taggedTrades.length : 0,
+};
+}).filter((stat) => stat.count > 0);
+const sessionDefinitions = [
+{ name: 'Asia', color: '#38bdf8' },
+{ name: 'London', color: '#f59e0b' },
+{ name: 'New York', color: '#a78bfa' },
+];
+const dashboardSessionStats = sessionDefinitions.map((session, index) => {
+const sessionTrades = trades.filter((trade) => {
+const entry = new Date(${trade.date}T${trade.time || '00:00'});
+const utcHour = entry.getUTCHours();
+return index === 0 ? utcHour < 8 : index === 1 ? utcHour >= 8 && utcHour < 16 : utcHour >= 16;
+});
+return {
+...session,
+count: sessionTrades.length,
+netR: sessionTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0),
+};
+});
+const dashboardSessionCount = dashboardSessionStats.reduce((sum, session) => sum + session.count, 0);
+let sessionAngle = 0;
+const dashboardSessionGradient = dashboardSessionCount
+? conic-gradient(${dashboardSessionStats.map((session) => { const start = sessionAngle; sessionAngle += session.count / dashboardSessionCount * 360; return ${session.color} ${start}deg ${sessionAngle}deg; }).join(', ')})
+: 'conic-gradient(#1c2436 0deg 360deg)';
+
+return (
+<div className={app-container ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}} data-theme={theme}>
+{/* Sidebar Navigation & Profile Selector */}
+
+
+
+
+TradeLog
+Personal Journal
+
+<button
+className="sidebar-toggle"
+type="button"
+onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+>
+{isSidebarCollapsed ? '›' : '‹'}
+
+
+
+    {/* Profile Switcher Box */}
+    {!isSidebarCollapsed && <div className="profile-selector-card">
+      <span className="profile-label">Active Journal Profile</span>
+      <select
+        className="profile-select"
+        value={activeProfileId}
+        onChange={(e) => switchActiveProfile(e.target.value)}
+      >
+        {profiles.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <button
+        className="manage-profiles-btn"
+        onClick={() => setIsProfileModalOpen(true)}
+      >
+        + Manage Profiles
+      </button>
+    </div>}
+    {isSidebarCollapsed && (
+      <button
+        className="sidebar-profile-icon"
+        type="button"
+        title={`Active profile: ${currentProfileObj.name} · Manage profiles`}
+        aria-label={`Manage profiles. Active profile: ${currentProfileObj.name}`}
+        onClick={() => setIsProfileModalOpen(true)}
+      >
+        {currentProfileObj.name.slice(0, 1).toUpperCase()}
+      </button>
+    )}
+
+    <nav className="nav-menu">
+      <button
+        className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+        onClick={() => setActiveTab('dashboard')}
+        title="Dashboard"
+      >
+        <span className="nav-icon" aria-hidden="true">📊</span><span className="nav-label">Dashboard</span>
+      </button>
+      <button
+        className={`nav-item ${activeTab === 'calendar' ? 'active' : ''}`}
+        onClick={() => setActiveTab('calendar')}
+        title="Calendar"
+      >
+        <span className="nav-icon" aria-hidden="true">📅</span><span className="nav-label">Calendar</span>
+      </button>
+      <button
+        className={`nav-item ${activeTab === 'trades' ? 'active' : ''}`}
+        onClick={() => setActiveTab('trades')}
+        title="Trades"
+      >
+        <span className="nav-icon" aria-hidden="true">📒</span><span className="nav-label">Trades</span>
+      </button>
+      <button
+        className={`nav-item ${activeTab === 'topdown' ? 'active' : ''}`}
+        onClick={() => setActiveTab('topdown')}
+        title="Top Down Analysis"
+      >
+        <span className="nav-icon" aria-hidden="true">🔎</span><span className="nav-label">Top Down Analysis</span>
+      </button>
+      <button
+        className={`nav-item ${activeTab === 'simulator' ? 'active' : ''}`}
+        onClick={() => setActiveTab('simulator')}
+        title="Monte Carlo"
+      >
+        <span className="nav-icon" aria-hidden="true">🎲</span><span className="nav-label">Monte Carlo</span>
+      </button>
+    </nav>
+  </aside>
+
+  {/* Main Area */}
+  <main className="main-content">
+    <header className="header-bar">
+      <div>
+        <span className="section-subtitle">
+          JOURNAL PROFILE: <span className="text-amber">{currentProfileObj.name}</span>
+        </span>
+        <h1 className="section-title">
+          {activeTab === 'dashboard' && greeting}
+          {activeTab === 'calendar' && 'Performance Calendar'}
+          {activeTab === 'trades' && 'Performance Lab'}
+          {activeTab === 'topdown' && 'Top Down Analysis'}
+          {activeTab === 'simulator' && 'Prop Firm Monte Carlo Engine'}
+        </h1>
+      </div>
+      <div className="header-actions">
+        {/* Supabase Authentication Control */}
+        {session ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginRight: '0.5rem' }}>
+            <span className="panel-sub" style={{ fontSize: '0.85rem' }}>
+              {session.user.email}
             </span>
-            <h1 className="section-title">
-              {activeTab === 'dashboard' && greeting}
-              {activeTab === 'calendar' && 'Performance Calendar'}
-              {activeTab === 'trades' && 'Performance Lab'}
-              {activeTab === 'topdown' && 'Top Down Analysis'}
-              {activeTab === 'simulator' && 'Prop Firm Monte Carlo Engine'}
-            </h1>
-          </div>
-          <div className="header-actions">
-            <button className="theme-toggle-btn" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
-              <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            <button
+              type="button"
+              onClick={signOut}
+              style={{
+                backgroundColor: '#ef4444',
+                color: '#fff',
+                border: 'none',
+                padding: '0.4rem 0.8rem',
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: '600'
+              }}
+            >
+              Sign Out
             </button>
-            <button className="btn-primary" onClick={handleOpenAddModal}>
-              + Add trade
-            </button>
           </div>
-        </header>
-
-        {/* DASHBOARD TAB */}
-        {activeTab === 'dashboard' && (
-          <>
-            <div className="stats-grid">
-              <div className="stat-card"><span className="stat-label">TOTAL R</span><div className={`stat-value ${parseFloat(totalR) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(totalR) >= 0 ? '+' : ''}{totalR}R</div><span className="stat-sub">{trades.length} recorded trades</span></div>
-              <div className="stat-card"><span className="stat-label">WIN RATE</span><div className="stat-value text-white">{winRate}%</div><span className="stat-sub">{winCount} wins / {trades.length} trades</span></div>
-              <div className="stat-card"><span className="stat-label">AVERAGE R</span><div className={`stat-value ${parseFloat(avgR) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(avgR) >= 0 ? '+' : ''}{avgR}R</div><span className="stat-sub">Per trade</span></div>
-              <div className="stat-card"><span className="stat-label">P&amp;L</span><div className={`stat-value ${parseFloat(totalPL) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(totalPL) >= 0 ? '+' : ''}${totalPL}</div><span className="stat-sub">Illustrative $10/R</span></div>
-            </div>
-            <div className="analytics-section-title">Expectancy &amp; Profit Factor</div>
-            <div className="dashboard-grid">
-              <section className="panel-card"><span className="stat-label">EXPECTANCY</span><div className="flex-between"><div><div className={`stat-value ${parseFloat(expectancyR) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(expectancyR) >= 0 ? '+' : ''}{expectancyR}R</div><span className="stat-sub">Expected return per trade executed</span></div><div className="expectancy-bar-container"><span className="expectancy-bar-win">+{grossWinsR.toFixed(1)}R</span><span className="expectancy-bar-loss">-{grossLossesR.toFixed(1)}R</span></div></div></section>
-              <section className="panel-card flex-between"><div><span className="stat-label">PROFIT FACTOR</span><div className="stat-value text-white">{profitFactor}</div><span className="stat-sub">Gross profit / Gross loss ratio</span></div><div className="pf-gauge" style={{ '--pf-angle': `${profitFactorProgress * 360}deg` }} role="img" aria-label={`Profit factor gauge: ${profitFactor}`} title={`Profit factor: ${profitFactor}`} /></section>
-            </div>
-            <div className="analytics-section-title">Winners and Losers</div>
-            <div className="dashboard-grid mb-6">
-              <section className="panel-card border-green-glow"><h3 className="text-green">Winners</h3><p className="panel-sub">Total winners <strong>{winningTrades.length}</strong></p><p className="panel-sub">Best win <strong className="text-green">+{bestTradeR}R</strong></p><p className="panel-sub">Average win <strong className="text-green">+{avgWinR}R</strong></p><p className="panel-sub">Most consecutive wins <strong className="text-green">{maxConsecutiveWins}</strong></p></section>
-              <section className="panel-card border-red-glow"><h3 className="text-red">Losers</h3><p className="panel-sub">Total losers <strong>{losingTrades.length}</strong></p><p className="panel-sub">Worst loss <strong className="text-red">{worstTradeR}R</strong></p><p className="panel-sub">Average loss <strong className="text-red">{avgLossR}R</strong></p><p className="panel-sub">Most consecutive losses <strong className="text-red">{maxConsecutiveLosses}</strong></p></section>
-            </div>
-            <div className="dashboard-equity-sessions-row">
-            <div className="panel-card equity-panel">
-              <div className="panel-header space-between">
-                <div>
-                  <h3>{equityChartType === 'line' ? 'Equity Curve' : equityChartType === 'cumulative-bars' ? 'Cumulative R Bars' : equityChartType === 'daily-bars' ? 'Daily Net R' : 'Per-Trade Results'}</h3>
-                  <p className="panel-sub">
-                    {equityChartType === 'line' || equityChartType === 'cumulative-bars'
-                      ? 'Cumulative account growth across logged trades'
-                      : equityChartType === 'daily-bars' ? 'Net result for each trading day' : 'R result for each logged trade'}
-                  </p>
-                </div>
-                <select
-                  aria-label="Equity graph type"
-                  value={equityChartType}
-                  onChange={(e) => setEquityChartType(e.target.value)}
-                  style={{ width: 'auto', minWidth: '170px' }}
-                >
-                  <option value="line">Equity line</option>
-                  <option value="cumulative-bars">Cumulative R bars</option>
-                  <option value="daily-bars">Daily net R bars</option>
-                  <option value="trade-bars">Per-trade R bars</option>
-                </select>
-              </div>
-              <div className="equity-chart-container">
-                {sortedTradesForEquity.length > 0 ? (
-                  <svg className="equity-svg" viewBox="0 0 500 150" preserveAspectRatio="none">
-                    {(() => {
-                      const isLine = equityChartType === 'line';
-                      const chartData = isLine || equityChartType === 'cumulative-bars'
-                        ? equityCurvePoints
-                        : equityChartType === 'daily-bars'
-                          ? dailyRPoints
-                          : sortedTradesForEquity.map((trade) => ({
-                            date: trade.date,
-                            totalR: parseFloat(trade.resultR) || 0,
-                            label: trade.instrument,
-                          }));
-                      const values = chartData.map((point) => point.totalR);
-                      const min = Math.min(0, ...values);
-                      const max = Math.max(0, ...values);
-                      const range = max - min || 1;
-                      const chartTop = 18;
-                      const chartBottom = 116;
-                      const zeroY = chartBottom - ((0 - min) / range) * (chartBottom - chartTop);
-                      const pointX = (idx) => chartData.length === 1 ? 250 : (idx / (chartData.length - 1)) * 460 + 20;
-                      const pointY = (value) => chartBottom - ((value - min) / range) * (chartBottom - chartTop);
-                      const pointsStr = chartData.map((point, idx) => `${pointX(idx)},${pointY(point.totalR)}`).join(' ');
-                      const barWidth = Math.max(4, Math.min(24, (460 / chartData.length) * 0.62));
-
-                      return (
-                        <>
-                          <line x1="20" y1={zeroY} x2="480" y2={zeroY} stroke="#334155" strokeWidth="1" />
-                          {isLine ? <polyline fill="none" stroke="#38bdf8" strokeWidth="2.5" points={pointsStr} /> : null}
-                          {chartData.map((p, idx) => {
-                            const x = pointX(idx);
-                            const y = pointY(p.totalR);
-                            const label = p.label || p.date.slice(5).replace('-', '/');
-                            const barHeight = Math.max(1, Math.abs(zeroY - y));
-                            const barY = Math.min(zeroY, y);
-                            return (
-                              <g key={`${p.date}-${idx}`} className="equity-point-group">
-                                {isLine ? (
-                                  <circle cx={x} cy={y} r="4" fill={p.totalR >= 0 ? '#10b981' : '#ef4444'} />
-                                ) : (
-                                  <rect x={x - barWidth / 2} y={barY} width={barWidth} height={barHeight} rx="2" fill={p.totalR >= 0 ? '#10b981' : '#ef4444'} />
-                                )}
-                                {(chartData.length <= 18 || idx % Math.ceil(chartData.length / 18) === 0 || idx === chartData.length - 1) && (
-                                  <text x={x} y="139" textAnchor="middle" fill="#94a3b8" fontSize="8">{label}</text>
-                                )}
-                                <title>{`${p.date}${p.label ? ` · ${p.label}` : ''}: ${p.totalR >= 0 ? '+' : ''}${p.totalR.toFixed(1)}R`}</title>
-                              </g>
-                            );
-                          })}
-                        </>
-                      );
-                    })()}
-                  </svg>
-                ) : (
-                  <div className="text-muted text-center py-6">Log trades in this profile to plot performance.</div>
-                )}
-              </div>
-            </div>
-              <section className="panel-card session-distribution-panel">
-                <div className="panel-header">
-                  <h3>Trades by session</h3>
-                  <p className="panel-sub">Entry time distribution · UTC session windows</p>
-                </div>
-                <div className="session-chart-content">
-                  <div className="session-donut" style={{ background: dashboardSessionGradient }} role="img" aria-label={dashboardSessionCount ? `Session distribution across ${dashboardSessionCount} trades` : 'No trades available for session distribution'}>
-                    <div className="session-donut-center"><strong>{dashboardSessionCount}</strong><span>trades</span></div>
-                  </div>
-                  <div className="session-legend">
-                    {dashboardSessionStats.map((session) => {
-                      const percent = dashboardSessionCount ? Math.round(session.count / dashboardSessionCount * 100) : 0;
-                      return <div className="session-legend-row" key={session.name}><span className="session-name"><i style={{ background: session.color }} />{session.name}</span><strong>{session.count} <small>({percent}%)</small></strong></div>;
-                    })}
-                  </div>
-                </div>
-                <p className="session-time-note">Asia 00:00–08:00 · London 08:00–16:00 · New York 16:00–24:00 UTC</p>
-              </section>
-            </div>
-            <div className="panel-card mb-6">
-              <div className="panel-header">
-                <h3>Performance Explorer</h3>
-                <p className="panel-sub">Filter your journal to compare results across instruments, directions, and entry times.</p>
-              </div>
-              <div className="performance-filter-grid mb-6">
-                <div className="form-group">
-                  <label>Instrument</label>
-                  <select value={performanceFilters.instrument} onChange={(e) => setPerformanceFilters({ ...performanceFilters, instrument: e.target.value })}>
-                    <option value="all">All instruments</option>
-                    {INSTRUMENT_PRESETS.map((group) => (
-                      <optgroup key={group.category} label={group.category}>
-                        {group.assets.map((instrument) => <option value={instrument} key={instrument}>{instrument}</option>)}
-                      </optgroup>
-                    ))}
-                    {performanceCustomInstruments.length > 0 && (
-                      <optgroup label="Custom / logged">
-                        {performanceCustomInstruments.map((instrument) => <option value={instrument} key={instrument}>{instrument}</option>)}
-                      </optgroup>
-                    )}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Direction</label>
-                  <select value={performanceFilters.direction} onChange={(e) => setPerformanceFilters({ ...performanceFilters, direction: e.target.value })}>
-                    <option value="all">Long and short</option>
-                    <option value="Long">Long</option>
-                    <option value="Short">Short</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Entry time (local)</label>
-                  <select value={performanceFilters.timeOfDay} onChange={(e) => setPerformanceFilters({ ...performanceFilters, timeOfDay: e.target.value })}>
-                    <option value="all">All times</option>
-                    <option value="00-06">00:00–05:59</option>
-                    <option value="06-12">06:00–11:59</option>
-                    <option value="12-18">12:00–17:59</option>
-                    <option value="18-24">18:00–23:59</option>
-                  </select>
-                </div>
-              </div>
-              <div className="performance-summary-grid">
-                <div className="stat-card"><span className="stat-label">MATCHING TRADES</span><div className="stat-value text-white">{performanceTrades.length}</div><span className="stat-sub">In the active profile</span></div>
-                <div className="stat-card"><span className="stat-label">WIN RATE</span><div className="stat-value text-white">{performanceWinRate}%</div><span className="stat-sub">{performanceWins.length} wins · {performanceLosses.length} losses</span></div>
-                <div className="stat-card"><span className="stat-label">NET RESULT</span><div className={`stat-value ${performanceTotalR >= 0 ? 'text-green' : 'text-red'}`}>{performanceTotalR >= 0 ? '+' : ''}{performanceTotalR.toFixed(1)}R</div><span className="stat-sub">Total across matching trades</span></div>
-                <div className="stat-card"><span className="stat-label">EXPECTANCY / TRADE</span><div className={`stat-value ${parseFloat(performanceExpectancy) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(performanceExpectancy) >= 0 ? '+' : ''}{performanceExpectancy}R</div><span className="stat-sub">Profit factor: {performanceProfitFactor}</span></div>
-              </div>
-              {performanceTrades.length === 0 && (
-                <p className="panel-sub mt-4">No trades match these filters in this profile.</p>
-              )}
-            </div>
-          </>
+        ) : (
+          <button
+            type="button"
+            onClick={signInWithGoogle}
+            style={{
+              backgroundColor: '#4285F4',
+              color: '#fff',
+              border: 'none',
+              padding: '0.4rem 0.9rem',
+              borderRadius: '0.375rem',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: '600',
+              marginRight: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem'
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 18 18">
+              <path fill="#ffffff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/>
+              <path fill="#ffffff" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+              <path fill="#ffffff" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
+              <path fill="#ffffff" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
+            </svg>
+            Sign in with Google
+          </button>
         )}
 
-        {/* CALENDAR TAB */}
-        {activeTab === 'calendar' && (
-          <>
-            <div className="journal-review-stats">
-              <div className="stat-card">
-                <span className="stat-label">{monthNames[month]} RESULT</span>
-                <div className={`stat-value ${dashboardMonthNetR >= 0 ? 'text-green' : 'text-red'}`}>
-                  {dashboardMonthNetR >= 0 ? '+' : ''}{dashboardMonthNetR.toFixed(1)}R
-                </div>
-                <span className="stat-sub">{dashboardMonthTrades.length} trades this month</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-label">BEST DAY</span>
-                <div className={`stat-value ${dashboardBestDay && dashboardBestDay.totalR >= 0 ? 'text-green' : 'text-dim'}`}>
-                  {dashboardBestDay ? `${dashboardBestDay.totalR >= 0 ? '+' : ''}${dashboardBestDay.totalR.toFixed(1)}R` : '—'}
-                </div>
-                <span className="stat-sub">{dashboardBestDay ? new Date(`${dashboardBestDay.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No trades this month'}</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-label">RED DAYS</span>
-                <div className="stat-value text-red">{dashboardRedDays}</div>
-                <span className="stat-sub">Of {dashboardMonthDays.length} active days</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-label">MISTAKE TAGGED</span>
-                <div className="stat-value">{dashboardMistakeTradeCount}</div>
-                <span className="stat-sub">Trades this month</span>
-              </div>
+        <button className="theme-toggle-btn" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+          <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </button>
+        <button className="btn-primary" onClick={handleOpenAddModal}>
+          + Add trade
+        </button>
+      </div>
+    </header>
+
+    {/* DASHBOARD TAB */}
+    {activeTab === 'dashboard' && (
+      <>
+        <div className="stats-grid">
+          <div className="stat-card"><span className="stat-label">TOTAL R</span><div className={`stat-value ${parseFloat(totalR) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(totalR) >= 0 ? '+' : ''}{totalR}R</div><span className="stat-sub">{trades.length} recorded trades</span></div>
+          <div className="stat-card"><span className="stat-label">WIN RATE</span><div className="stat-value text-white">{winRate}%</div><span className="stat-sub">{winCount} wins / {trades.length} trades</span></div>
+          <div className="stat-card"><span className="stat-label">AVERAGE R</span><div className={`stat-value ${parseFloat(avgR) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(avgR) >= 0 ? '+' : ''}{avgR}R</div><span className="stat-sub">Per trade</span></div>
+          <div className="stat-card"><span className="stat-label">P&amp;L</span><div className={`stat-value ${parseFloat(totalPL) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(totalPL) >= 0 ? '+' : ''}${totalPL}</div><span className="stat-sub">Illustrative $10/R</span></div>
+        </div>
+        <div className="analytics-section-title">Expectancy &amp; Profit Factor</div>
+        <div className="dashboard-grid">
+          <section className="panel-card"><span className="stat-label">EXPECTANCY</span><div className="flex-between"><div><div className={`stat-value ${parseFloat(expectancyR) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(expectancyR) >= 0 ? '+' : ''}{expectancyR}R</div><span className="stat-sub">Expected return per trade executed</span></div><div className="expectancy-bar-container"><span className="expectancy-bar-win">+{grossWinsR.toFixed(1)}R</span><span className="expectancy-bar-loss">-{grossLossesR.toFixed(1)}R</span></div></div></section>
+          <section className="panel-card flex-between"><div><span className="stat-label">PROFIT FACTOR</span><div className="stat-value text-white">{profitFactor}</div><span className="stat-sub">Gross profit / Gross loss ratio</span></div><div className="pf-gauge" style={{ '--pf-angle': `${profitFactorProgress * 360}deg` }} role="img" aria-label={`Profit factor gauge: ${profitFactor}`} title={`Profit factor: ${profitFactor}`} /></section>
+        </div>
+        <div className="analytics-section-title">Winners and Losers</div>
+        <div className="dashboard-grid mb-6">
+          <section className="panel-card border-green-glow"><h3 className="text-green">Winners</h3><p className="panel-sub">Total winners <strong>{winningTrades.length}</strong></p><p className="panel-sub">Best win <strong className="text-green">+{bestTradeR}R</strong></p><p className="panel-sub">Average win <strong className="text-green">+{avgWinR}R</strong></p><p className="panel-sub">Most consecutive wins <strong className="text-green">{maxConsecutiveWins}</strong></p></section>
+          <section className="panel-card border-red-glow"><h3 className="text-red">Losers</h3><p className="panel-sub">Total losers <strong>{losingTrades.length}</strong></p><p className="panel-sub">Worst loss <strong className="text-red">{worstTradeR}R</strong></p><p className="panel-sub">Average loss <strong className="text-red">{avgLossR}R</strong></p><p className="panel-sub">Most consecutive losses <strong className="text-red">{maxConsecutiveLosses}</strong></p></section>
+        </div>
+        <div className="dashboard-equity-sessions-row">
+        <div className="panel-card equity-panel">
+          <div className="panel-header space-between">
+            <div>
+              <h3>{equityChartType === 'line' ? 'Equity Curve' : equityChartType === 'cumulative-bars' ? 'Cumulative R Bars' : equityChartType === 'daily-bars' ? 'Daily Net R' : 'Per-Trade Results'}</h3>
+              <p className="panel-sub">
+                {equityChartType === 'line' || equityChartType === 'cumulative-bars'
+                  ? 'Cumulative account growth across logged trades'
+                  : equityChartType === 'daily-bars' ? 'Net result for each trading day' : 'R result for each logged trade'}
+              </p>
             </div>
-
-            <div className="journal-review-grid">
-              <section className="panel-card journal-review-calendar-panel">
-                <div className="calendar-header">
-                  <h2>{monthNames[month]} {year}</h2>
-                  <div className="calendar-controls">
-                    <button onClick={() => changeMonth(-1)} className="cal-btn" aria-label="Previous month">◄</button>
-                    <button onClick={() => setCurrentDate(new Date())} className="cal-btn">Today</button>
-                    <button onClick={() => changeMonth(1)} className="cal-btn" aria-label="Next month">►</button>
-                  </div>
-                </div>
-                <div className="journal-review-calendar" role="grid" aria-label={`${monthNames[month]} ${year} trading results`}>
-                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span className="review-calendar-heading" key={day}>{day}</span>)}
-                  {Array.from({ length: firstDayOfMonth }).map((_, idx) => <span className="review-calendar-empty" key={`blank-${idx}`} />)}
-                  {Array.from({ length: daysInMonth }).map((_, idx) => {
-                    const dayNum = idx + 1;
-                    const dateStr = `${dashboardMonthPrefix}-${String(dayNum).padStart(2, '0')}`;
-                    const dayData = dashboardMonthDays.find((day) => day.date === dateStr);
-                    const selected = dashboardReviewDate === dateStr;
-                    const tone = dayData ? dayData.totalR > 0 ? 'profit' : dayData.totalR < 0 ? 'loss' : 'flat' : '';
-                    return (
-                      <button
-                        type="button"
-                        key={dateStr}
-                        className={`review-calendar-day ${tone} ${selected ? 'selected' : ''}`}
-                        onClick={() => setDashboardSelectedDate(dateStr)}
-                        aria-pressed={selected}
-                        aria-label={`${dateStr}${dayData ? `, ${dayData.totalR >= 0 ? 'plus ' : 'minus '}${Math.abs(dayData.totalR).toFixed(1)} R, ${dayData.trades.length} trades` : ', no logged trades'}`}
-                      >
-                        <span>{dayNum}</span>
-                        {dayData && <small>{dayData.totalR >= 0 ? '+' : ''}{dayData.totalR.toFixed(1)}R</small>}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="review-calendar-legend"><span><i className="profit-dot" /> Profitable</span><span><i className="loss-dot" /> Losing</span></div>
-              </section>
-
-              <section className="panel-card journal-day-review-panel">
-                <div className="panel-header space-between">
-                  <div>
-                    <h3>{new Date(`${dashboardReviewDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
-                    <p className="panel-sub">{dashboardReviewTrades.length} trade{dashboardReviewTrades.length === 1 ? '' : 's'}</p>
-                  </div>
-                  <strong className={`day-review-total ${dashboardReviewTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0) >= 0 ? 'text-green' : 'text-red'}`}>
-                    {dashboardReviewTrades.length ? `${dashboardReviewTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0) >= 0 ? '+' : ''}${dashboardReviewTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0).toFixed(1)}R` : '—'}
-                  </strong>
-                </div>
-                {dashboardReviewTrades.length > 0 ? (
-                  <div className="journal-day-trade-list">
-                    {dashboardReviewTrades.map((trade) => (
-                      <div className="journal-day-trade" key={trade.id}>
-                        <span className="instrument-badge">{trade.instrument}</span>
-                        <div className="journal-day-trade-info">
-                          <strong>{trade.setup || `${trade.direction} trade`}</strong>
-                          <small>{trade.time} · {trade.direction}{(trade.mistakes || []).length ? ` · ${(trade.mistakes || []).join(', ')}` : ''}</small>
-                          {(safeExternalUrl(trade.plannedTradingViewUrl) || safeExternalUrl(trade.tradingViewUrl)) && (
-                            <div className="journal-day-trade-links">
-                              {safeExternalUrl(trade.plannedTradingViewUrl) && <a href={safeExternalUrl(trade.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer">Plan chart ↗</a>}
-                              {safeExternalUrl(trade.tradingViewUrl) && <a href={safeExternalUrl(trade.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Trade chart ↗</a>}
-                            </div>
-                          )}
-                        </div>
-                        <strong className={parseFloat(trade.resultR) >= 0 ? 'text-green' : 'text-red'}>{parseFloat(trade.resultR) >= 0 ? '+' : ''}{(parseFloat(trade.resultR) || 0).toFixed(1)}R</strong>
-                        <div className="journal-day-trade-actions">
-                          <button type="button" className="action-btn icon-btn" onClick={() => setSelectedTradeDetails(trade)} aria-label={`View ${trade.instrument} trade details`} title="View trade details">👁️</button>
-                          <button type="button" className="action-btn edit-btn" onClick={() => handleEditTrade(trade)} aria-label={`Edit ${trade.instrument} trade`} title="Edit trade">✏️</button>
-                          <button type="button" className="action-btn delete-btn" onClick={() => handleDeleteTrade(trade.id)} aria-label={`Delete ${trade.instrument} trade`} title="Delete trade">🗑️</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="journal-empty-day">No trades logged for this date.</div>
-                )}
-                <button className="cal-btn journal-add-day-trade" onClick={() => handleAddTradeOnDate(dashboardReviewDate)}>＋ Add trade for this date</button>
-              </section>
-            </div>
-
-            <section className="journal-habits-section">
-              <div className="analytics-section-title">Daily habits · {monthNames[month]}</div>
-              <div className="journal-habits-grid">
-                <div className="panel-card journal-habit-card">
-                  <span className="stat-label">MOST COMMON MISTAKE</span>
-                  {dashboardMistakeSummary[0] ? (
-                    <>
-                      <strong>{dashboardMistakeSummary[0].tag}</strong>
-                      <span>{dashboardMistakeSummary[0].count} trades · {dashboardMistakeSummary[0].avgR >= 0 ? '+' : ''}{dashboardMistakeSummary[0].avgR.toFixed(2)}R average</span>
-                    </>
-                  ) : <span>No mistake tags recorded this month.</span>}
-                </div>
-                <div className="panel-card journal-habit-card">
-                  <span className="stat-label">STRONGEST MINDSET TAG</span>
-                  {dashboardMindsetSummary[0] ? (
-                    <>
-                      <strong>{dashboardMindsetSummary[0].label}</strong>
-                      <span>{dashboardMindsetSummary[0].count} trades · {dashboardMindsetSummary[0].avgR >= 0 ? '+' : ''}{dashboardMindsetSummary[0].avgR.toFixed(2)}R average</span>
-                    </>
-                  ) : <span>No psychology tags recorded this month.</span>}
-                </div>
-              </div>
-            </section>
-
-          </>
-        )}
-
-        {/* TRADES TAB */}
-        {activeTab === 'trades' && (
-          <div className="panel-card">
-            <section className="trade-lab-explore">
-              <div className="trade-lab-section-heading">
-                <div><h3>Explore results</h3><p className="panel-sub">Filter the active profile to compare your trading performance.</p></div>
-                <span className="trade-lab-count">{currentProfileObj.name} · {filteredTrades.length} matching trades</span>
-              </div>
-              <div className="trade-lab-filters" aria-label="Performance filters">
-                <label><span>Instrument</span><select value={tradeFilters.instrument} onChange={(e) => { setTradeFilters({ ...tradeFilters, instrument: e.target.value }); setTradePage(1); }}><option value="all">All instruments</option>{tradeInstrumentOptions.map((instrument) => <option key={instrument} value={instrument}>{instrument}</option>)}</select></label>
-                <label><span>Direction</span><select value={tradeFilters.direction} onChange={(e) => { setTradeFilters({ ...tradeFilters, direction: e.target.value }); setTradePage(1); }}><option value="all">Long and short</option><option value="Long">Long</option><option value="Short">Short</option></select></label>
-                <label><span>Entry time</span><select value={tradeFilters.timeOfDay} onChange={(e) => { setTradeFilters({ ...tradeFilters, timeOfDay: e.target.value }); setTradePage(1); }}><option value="all">All entry times</option><option value="00-06">00:00–05:59</option><option value="06-12">06:00–11:59</option><option value="12-18">12:00–17:59</option><option value="18-24">18:00–23:59</option></select></label>
-                <label><span>Date range</span><select value={tradeFilters.period} onChange={(e) => { setTradeFilters({ ...tradeFilters, period: e.target.value }); setTradePage(1); }}><option value="all">All time</option><option value="month">This month</option><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option></select></label>
-              </div>
-            </section>
-
-            <div className="trade-lab-stats">
-              <div className="stat-card"><span className="stat-label">MATCHING TRADES</span><div className="stat-value text-white">{filteredTrades.length}</div><span className="stat-sub">With current filters</span></div>
-              <div className="stat-card"><span className="stat-label">WIN RATE</span><div className="stat-value text-white">{labWinRate}%</div><span className="stat-sub">{labWins.length} wins · {labLosses.length} losses</span></div>
-              <div className="stat-card"><span className="stat-label">NET RESULT</span><div className={`stat-value ${labNetR >= 0 ? 'text-green' : 'text-red'}`}>{labNetR >= 0 ? '+' : ''}{labNetR.toFixed(1)}R</div><span className="stat-sub">Across matching trades</span></div>
-              <div className="stat-card"><span className="stat-label">EXPECTANCY</span><div className={`stat-value ${labExpectancy >= 0 ? 'text-green' : 'text-red'}`}>{labExpectancy >= 0 ? '+' : ''}{labExpectancy.toFixed(2)}R</div><span className="stat-sub">Profit factor {labProfitFactor}</span></div>
-            </div>
-
-            <div className="trade-lab-chart-grid">
-              <section className="panel-card trade-lab-chart-card">
-                <div className="panel-header space-between"><div><h3>Results by instrument</h3><p className="panel-sub">Net R · filtered trades</p></div><span className="trade-lab-count">{labInstrumentStats.length} assets</span></div>
-                {labInstrumentStats.length ? <div className="trade-lab-instrument-list">{labInstrumentStats.map((item) => <div className="trade-lab-instrument-row" key={item.symbol}><strong>{item.symbol}</strong><div className="trade-lab-track"><div className={`trade-lab-fill ${item.netR < 0 ? 'negative' : ''}`} style={{ width: `${Math.max(3, Math.abs(item.netR) / labMaxInstrumentR * 100)}%` }} /></div><b className={item.netR >= 0 ? 'text-green' : 'text-red'}>{item.netR >= 0 ? '+' : ''}{item.netR.toFixed(1)}R</b><small>{item.count}</small></div>)}</div> : <p className="trade-lab-empty">No trades match these filters.</p>}
-              </section>
-              <section className="panel-card trade-lab-chart-card">
-                <div className="panel-header"><h3>Trade results</h3><p className="panel-sub">R per trade · chronological</p></div>
-                {labChartTrades.length ? <div className="trade-lab-bars" role="img" aria-label="Chronological results for matching trades">{labChartTrades.map((trade, index) => { const result = parseFloat(trade.resultR) || 0; return <span key={trade.id} className={`trade-lab-bar ${result < 0 ? 'negative' : ''}`} style={{ height: `${Math.max(5, Math.abs(result) / labChartMaxR * 100)}%` }} title={`${trade.date} · ${trade.instrument} · ${result >= 0 ? '+' : ''}${result.toFixed(1)}R`}><i>{index + 1}</i></span>; })}</div> : <p className="trade-lab-empty">Log trades in this profile to see results.</p>}
-                {labChartTrades.length > 0 && <div className="trade-lab-chart-caption"><span>Trade 1</span><span>Trade number →</span><span>Trade {labChartTrades.length}</span></div>}
-              </section>
-            </div>
-
-            <div className="trades-tab-header">
-              <div>
-                <h3>Recent matching trades</h3>
-                <p className="panel-sub">Showing {filteredTrades.length} of {trades.length} logged trades · Total logged costs: ${totalLoggedTradeCosts.toFixed(2)}</p>
-              </div>
-              <input
-                type="text"
-                placeholder="Search instrument or custom name, setup, notes..."
-                value={searchTerm}
-                onChange={(e) => { setSearchTerm(e.target.value); setTradePage(1); }}
-                className="trades-search-input"
-              />
-            </div>
-
-            <details className="trade-extra-filters">
-              <summary>More filters <span>Psychology and mistake tags</span></summary>
-              <div className="trade-filter-bar" aria-label="Additional trade filters">
-              <label>
-                <span>Psychology</span>
-                <select value={tradeFilters.psychology} onChange={(e) => { setTradeFilters({ ...tradeFilters, psychology: e.target.value }); setTradePage(1); }}>
-                  <option value="all">All psychology tags</option>
-                  {tradePsychologyOptions.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-                </select>
-              </label>
-              <label>
-                <span>Mistake tag</span>
-                <select value={tradeFilters.mistake} onChange={(e) => { setTradeFilters({ ...tradeFilters, mistake: e.target.value }); setTradePage(1); }}>
-                  <option value="all">All mistake tags</option>
-                  {MISTAKE_TAGS.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-                </select>
-              </label>
-            </div>
-            </details>
-
-            <details className="mistake-performance">
-              <summary>Mistake performance <span>See how trades with each mistake tag performed</span></summary>
-              {mistakePerformance.length > 0 ? (
-                <div className="mistake-performance-table-wrap">
-                  <table className="mistake-performance-table">
-                    <thead>
-                      <tr><th>Mistake tag</th><th>Trades</th><th>Win rate</th><th>Net result</th><th>Average / trade</th></tr>
-                    </thead>
-                    <tbody>
-                      {mistakePerformance.map((stat) => (
-                        <tr key={stat.tag}>
-                          <td>{stat.tag}</td>
-                          <td>{stat.count}</td>
-                          <td>{stat.winRate}%</td>
-                          <td className={stat.netR >= 0 ? 'text-green' : 'text-red'}>{stat.netR >= 0 ? '+' : ''}{stat.netR.toFixed(1)}R</td>
-                          <td className={stat.avgR >= 0 ? 'text-green' : 'text-red'}>{stat.avgR >= 0 ? '+' : ''}{stat.avgR.toFixed(2)}R</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <p className="panel-sub">Each trade contributes to every mistake tag selected for it. Results use all trades in this profile.</p>
-                </div>
-              ) : (
-                <p className="mistake-performance-empty">No mistake tags logged yet. Add tags to trades to build this report.</p>
-              )}
-            </details>
-
-            <div className="full-trades-table-container">
-              <table className="full-trades-table">
-                <thead>
-                  <tr>
-                    <th>Actions</th>
-                    <th>Date / Time</th>
-                    <th>Pair</th>
-                    <th>Dir</th>
-                    <th>Setup</th>
-                    <th>Plan</th>
-                    <th>Actual Entry</th>
-                    <th>Actual SL</th>
-                    <th>Actual Exit</th>
-                    <th>Result (R) / Costs</th>
-                    <th>Mindset / Mistakes</th>
-                    <th>Charts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedTrades.map((t) => (
-                    <tr
-                      key={t.id}
-                      className="trade-row-clickable"
-                      tabIndex={0}
-                      onClick={(event) => {
-                        if (!event.target.closest('button, a')) setSelectedTradeDetails(t);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
-                          event.preventDefault();
-                          setSelectedTradeDetails(t);
-                        }
-                      }}
-                      aria-label={`Open ${t.instrument || 'trade'} details`}
-                    >
-                      <td>
-                        <div className="trade-actions">
-                          <button
-                            className="action-btn icon-btn"
-                            onClick={() => setSelectedTradeDetails(t)}
-                            title="View trade details"
-                            aria-label={`View ${t.instrument || 'trade'} details`}
-                          >
-                            👁️
-                          </button>
-                          <button
-                            className="action-btn edit-btn"
-                            onClick={() => handleEditTrade(t)}
-                            title="Edit trade"
-                            aria-label={`Edit ${t.instrument || 'trade'}`}
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            className="action-btn delete-btn"
-                            onClick={() => handleDeleteTrade(t.id)}
-                            title="Delete trade"
-                            aria-label={`Delete ${t.instrument || 'trade'}`}
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </td>
-                      <td className="text-muted">
-                        {t.date} <br />
-                        <span className="text-xs">{t.time}</span>
-                      </td>
-                      <td>
-                        <span className="instrument-badge">{t.instrument}</span>
-                      </td>
-                      <td className={t.direction === 'Long' ? 'text-green' : 'text-red'}>
-                        {t.direction}
-                      </td>
-                      <td>{t.setup}</td>
-                      <td className="trade-plan-cell">
-                        {t.plannedEntry || t.plannedStopLoss || t.plannedTakeProfit ? (
-                          <>
-                            <span>E: {t.plannedEntry || '—'}</span>
-                            <span>SL: {t.plannedStopLoss || '—'}</span>
-                            <span>TP: {t.plannedTakeProfit || '—'}</span>
-                          </>
-                        ) : '-'}
-                      </td>
-                      <td>{t.entry || '-'}</td>
-                      <td>{t.stopLoss || '-'}</td>
-                      <td>{t.exit || '-'}</td>
-                      <td className={`font-bold ${t.resultR >= 0 ? 'text-green' : 'text-red'}`}>
-                        <span>{t.resultR >= 0 ? `+${t.resultR}R` : `${t.resultR}R`}</span>
-                        {getTradeCosts(t) > 0 && <small className="trade-cost-meta">Cost ${getTradeCosts(t).toFixed(2)}</small>}
-                      </td>
-                      <td>
-                        <div className="trade-tags">
-                          {t.psychology &&
-                            t.psychology.map((tag) => (
-                              <span key={tag} className="tag-badge">
-                                {tag}
-                              </span>
-                            ))}
-                          {(t.mistakes || []).map((tag) => (
-                            <span key={`mistake-${tag}`} className="tag-badge mistake-tag-badge">! {tag}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="trade-actions">
-                          {safeExternalUrl(t.plannedTradingViewUrl) && (
-                            <a className="tradingview-table-link" href={safeExternalUrl(t.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer" title="Open pre-trade TradingView chart">Plan ↗</a>
-                          )}
-                          {t.plannedScreenshotUrl && (
-                            <button className="action-btn icon-btn" onClick={() => setPreviewImage(t.plannedScreenshotUrl)} title="View pre-trade plan chart" aria-label="View pre-trade plan chart">📋</button>
-                          )}
-                          {safeExternalUrl(t.tradingViewUrl) && (
-                            <a className="tradingview-table-link" href={safeExternalUrl(t.tradingViewUrl)} target="_blank" rel="noopener noreferrer" title="Open executed trade TradingView chart">Trade ↗</a>
-                          )}
-                          {t.screenshotUrl && (
-                            <button className="action-btn icon-btn" onClick={() => setPreviewImage(t.screenshotUrl)} title="View after-trade chart" aria-label="View after-trade chart">🖼️</button>
-                          )}
-                          {!t.plannedTradingViewUrl && !t.tradingViewUrl && !t.plannedScreenshotUrl && !t.screenshotUrl && '-'}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {filteredTrades.length === 0 && (
-                    <tr>
-                      <td colSpan="12" className="text-center py-6 text-muted">
-                        No trades match these search and filter settings.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="trades-pagination">
-              <span>Page {currentTradePage} of {totalTradePages} · {tradesPerPage} trades per page</span>
-              <div>
-                <button className="cal-btn" type="button" disabled={currentTradePage <= 1} onClick={() => setTradePage((page) => Math.max(1, page - 1))}>← Previous</button>
-                <button className="cal-btn" type="button" disabled={currentTradePage >= totalTradePages} onClick={() => setTradePage((page) => Math.min(totalTradePages, page + 1))}>Next →</button>
-              </div>
-            </div>
+            <select
+              aria-label="Equity graph type"
+              value={equityChartType}
+              onChange={(e) => setEquityChartType(e.target.value)}
+              style={{ width: 'auto', minWidth: '170px' }}
+            >
+              <option value="line">Equity line</option>
+              <option value="cumulative-bars">Cumulative R bars</option>
+              <option value="daily-bars">Daily net R bars</option>
+              <option value="trade-bars">Per-trade R bars</option>
+            </select>
           </div>
-        )}
+          <div className="equity-chart-container">
+            {sortedTradesForEquity.length > 0 ? (
+              <svg className="equity-svg" viewBox="0 0 500 150" preserveAspectRatio="none">
+                {(() => {
+                  const isLine = equityChartType === 'line';
+                  const chartData = isLine || equityChartType === 'cumulative-bars'
+                    ? equityCurvePoints
+                    : equityChartType === 'daily-bars'
+                      ? dailyRPoints
+                      : sortedTradesForEquity.map((trade) => ({
+                        date: trade.date,
+                        totalR: parseFloat(trade.resultR) || 0,
+                        label: trade.instrument,
+                      }));
+                  const values = chartData.map((point) => point.totalR);
+                  const min = Math.min(0, ...values);
+                  const max = Math.max(0, ...values);
+                  const range = max - min || 1;
+                  const chartTop = 18;
+                  const chartBottom = 116;
+                  const zeroY = chartBottom - ((0 - min) / range) * (chartBottom - chartTop);
+                  const pointX = (idx) => chartData.length === 1 ? 250 : (idx / (chartData.length - 1)) * 460 + 20;
+                  const pointY = (value) => chartBottom - ((value - min) / range) * (chartBottom - chartTop);
+                  const pointsStr = chartData.map((point, idx) => `${pointX(idx)},${pointY(point.totalR)}`).join(' ');
+                  const barWidth = Math.max(4, Math.min(24, (460 / chartData.length) * 0.62));
 
-        {/* TOP DOWN ANALYSIS TAB */}
-        {activeTab === 'topdown' && (
-          <div className="top-down-page">
-            <section className="panel-card top-down-intro">
-              <div>
-                <h3>Top Down Analysis Cards</h3>
-                <p className="panel-sub">Save a dated market view with your own timeframe, chart screenshot, links, and description. Cards are saved for this profile in this browser.</p>
-              </div>
-              <div className="top-down-create-controls">
-                <label className="top-down-create-date">
-                  <span>Date</span>
-                  <input type="date" value={topDownSelectedDate} onChange={(event) => setTopDownSelectedDate(event.target.value)} aria-label="Choose analysis card date" />
-                </label>
-                <button className="btn-primary" type="button" onClick={() => openTopDownCardForm()}>＋ Create analysis card</button>
-              </div>
-            </section>
-            {topDownStorageError && <p className="top-down-error" role="alert">{topDownStorageError}</p>}
-            {topDownCards.length ? (
-              <div className="top-down-card-list">
-                {topDownCards.map((card) => (
-                  <article className="panel-card top-down-analysis-card" key={card.id}>
-                    <div className="top-down-analysis-header">
-                      <div className="top-down-analysis-meta">
-                        <span className="top-down-timeframe-badge">{card.timeframe || 'Custom timeframe'}</span>
-                        <time dateTime={card.date}>{card.date ? new Date(`${card.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' }) : 'Date not set'}</time>
-                      </div>
-                      <div className="top-down-card-actions">
-                        <button className="action-btn icon-btn" type="button" onClick={() => openTopDownCardForm(card)} aria-label={`Edit ${card.title || 'analysis card'}`} title="Edit card">✏️</button>
-                        <button className="action-btn icon-btn" type="button" onClick={() => deleteTopDownCard(card.id)} aria-label={`Delete ${card.title || 'analysis card'}`} title="Delete card">🗑️</button>
-                      </div>
-                    </div>
-                    <h3>{card.title || card.timeframe || 'Analysis card'}</h3>
-                    {card.description && <p className="top-down-card-description">{card.description}</p>}
-                    {card.imageData && <button className="top-down-card-image" type="button" onClick={() => setPreviewImage(card.imageData)} title="View full screenshot"><img src={card.imageData} alt={`${card.title || card.timeframe} chart screenshot`} /></button>}
-                    <div className="top-down-card-links">
-                      {safeExternalUrl(card.tradingViewUrl) && <a className="cal-btn" href={safeExternalUrl(card.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Open TradingView ↗</a>}
-                      {safeExternalUrl(card.referenceUrl) && <a className="cal-btn" href={safeExternalUrl(card.referenceUrl)} target="_blank" rel="noopener noreferrer">Open reference ↗</a>}
-                    </div>
-                  </article>
-                ))}
-              </div>
+                  return (
+                    <>
+                      <line x1="20" y1={zeroY} x2="480" y2={zeroY} stroke="#334155" strokeWidth="1" />
+                      {isLine ? <polyline fill="none" stroke="#38bdf8" strokeWidth="2.5" points={pointsStr} /> : null}
+                      {chartData.map((p, idx) => {
+                        const x = pointX(idx);
+                        const y = pointY(p.totalR);
+                        const label = p.label || p.date.slice(5).replace('-', '/');
+                        const barHeight = Math.max(1, Math.abs(zeroY - y));
+                        const barY = Math.min(zeroY, y);
+                        return (
+                          <g key={`${p.date}-${idx}`} className="equity-point-group">
+                            {isLine ? (
+                              <circle cx={x} cy={y} r="4" fill={p.totalR >= 0 ? '#10b981' : '#ef4444'} />
+                            ) : (
+                              <rect x={x - barWidth / 2} y={barY} width={barWidth} height={barHeight} rx="2" fill={p.totalR >= 0 ? '#10b981' : '#ef4444'} />
+                            )}
+                            {(chartData.length <= 18 || idx % Math.ceil(chartData.length / 18) === 0 || idx === chartData.length - 1) && (
+                              <text x={x} y="139" textAnchor="middle" fill="#94a3b8" fontSize="8">{label}</text>
+                            )}
+                            <title>{`${p.date}${p.label ? ` · ${p.label}` : ''}: ${p.totalR >= 0 ? '+' : ''}${p.totalR.toFixed(1)}R`}</title>
+                          </g>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              </svg>
             ) : (
-              <section className="panel-card top-down-empty-state">
-                <span aria-hidden="true">🗂️</span>
-                <h3>No analysis cards yet</h3>
-                <p className="panel-sub">Choose a date above and create your first card. Add any timeframe, chart screenshot, links, and a description.</p>
-                <button className="btn-primary" type="button" onClick={() => openTopDownCardForm()}>＋ Create analysis card</button>
-              </section>
+              <div className="text-muted text-center py-6">Log trades in this profile to plot performance.</div>
             )}
           </div>
-        )}
+        </div>
+          <section className="panel-card session-distribution-panel">
+            <div className="panel-header">
+              <h3>Trades by session</h3>
+              <p className="panel-sub">Entry time distribution · UTC session windows</p>
+            </div>
+            <div className="session-chart-content">
+              <div className="session-donut" style={{ background: dashboardSessionGradient }} role="img" aria-label={dashboardSessionCount ? `Session distribution across ${dashboardSessionCount} trades` : 'No trades available for session distribution'}>
+                <div className="session-donut-center"><strong>{dashboardSessionCount}</strong><span>trades</span></div>
+              </div>
+              <div className="session-legend">
+                {dashboardSessionStats.map((session) => {
+                  const percent = dashboardSessionCount ? Math.round(session.count / dashboardSessionCount * 100) : 0;
+                  return <div className="session-legend-row" key={session.name}><span className="session-name"><i style={{ background: session.color }} />{session.name}</span><strong>{session.count} <small>({percent}%)</small></strong></div>;
+                })}
+              </div>
+            </div>
+            <p className="session-time-note">Asia 00:00–08:00 · London 08:00–16:00 · New York 16:00–24:00 UTC</p>
+          </section>
+        </div>
+        <div className="panel-card mb-6">
+          <div className="panel-header">
+            <h3>Performance Explorer</h3>
+            <p className="panel-sub">Filter your journal to compare results across instruments, directions, and entry times.</p>
+          </div>
+          <div className="performance-filter-grid mb-6">
+            <div className="form-group">
+              <label>Instrument</label>
+              <select value={performanceFilters.instrument} onChange={(e) => setPerformanceFilters({ ...performanceFilters, instrument: e.target.value })}>
+                <option value="all">All instruments</option>
+                {INSTRUMENT_PRESETS.map((group) => (
+                  <optgroup key={group.category} label={group.category}>
+                    {group.assets.map((instrument) => <option value={instrument} key={instrument}>{instrument}</option>)}
+                  </optgroup>
+                ))}
+                {performanceCustomInstruments.length > 0 && (
+                  <optgroup label="Custom / logged">
+                    {performanceCustomInstruments.map((instrument) => <option value={instrument} key={instrument}>{instrument}</option>)}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Direction</label>
+              <select value={performanceFilters.direction} onChange={(e) => setPerformanceFilters({ ...performanceFilters, direction: e.target.value })}>
+                <option value="all">Long and short</option>
+                <option value="Long">Long</option>
+                <option value="Short">Short</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Entry time (local)</label>
+              <select value={performanceFilters.timeOfDay} onChange={(e) => setPerformanceFilters({ ...performanceFilters, timeOfDay: e.target.value })}>
+                <option value="all">All times</option>
+                <option value="00-06">00:00–05:59</option>
+                <option value="06-12">06:00–11:59</option>
+                <option value="12-18">12:00–17:59</option>
+                <option value="18-24">18:00–23:59</option>
+              </select>
+            </div>
+          </div>
+          <div className="performance-summary-grid">
+            <div className="stat-card"><span className="stat-label">MATCHING TRADES</span><div className="stat-value text-white">{performanceTrades.length}</div><span className="stat-sub">In the active profile</span></div>
+            <div className="stat-card"><span className="stat-label">WIN RATE</span><div className="stat-value text-white">{performanceWinRate}%</div><span className="stat-sub">{performanceWins.length} wins · {performanceLosses.length} losses</span></div>
+            <div className="stat-card"><span className="stat-label">NET RESULT</span><div className={`stat-value ${performanceTotalR >= 0 ? 'text-green' : 'text-red'}`}>{performanceTotalR >= 0 ? '+' : ''}{performanceTotalR.toFixed(1)}R</div><span className="stat-sub">Total across matching trades</span></div>
+            <div className="stat-card"><span className="stat-label">EXPECTANCY / TRADE</span><div className={`stat-value ${parseFloat(performanceExpectancy) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(performanceExpectancy) >= 0 ? '+' : ''}{performanceExpectancy}R</div><span className="stat-sub">Profit factor: {performanceProfitFactor}</span></div>
+          </div>
+          {performanceTrades.length === 0 && (
+            <p className="panel-sub mt-4">No trades match these filters in this profile.</p>
+          )}
+        </div>
+      </>
+    )}
 
-        {/* MONTE CARLO TAB */}
-        {activeTab === 'simulator' && (
-          <div className="panel-card">
+    {/* CALENDAR TAB */}
+    {activeTab === 'calendar' && (
+      <>
+        <div className="journal-review-stats">
+          <div className="stat-card">
+            <span className="stat-label">{monthNames[month]} RESULT</span>
+            <div className={`stat-value ${dashboardMonthNetR >= 0 ? 'text-green' : 'text-red'}`}>
+              {dashboardMonthNetR >= 0 ? '+' : ''}{dashboardMonthNetR.toFixed(1)}R
+            </div>
+            <span className="stat-sub">{dashboardMonthTrades.length} trades this month</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">BEST DAY</span>
+            <div className={`stat-value ${dashboardBestDay && dashboardBestDay.totalR >= 0 ? 'text-green' : 'text-dim'}`}>
+              {dashboardBestDay ? `${dashboardBestDay.totalR >= 0 ? '+' : ''}${dashboardBestDay.totalR.toFixed(1)}R` : '—'}
+            </div>
+            <span className="stat-sub">{dashboardBestDay ? new Date(`${dashboardBestDay.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No trades this month'}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">RED DAYS</span>
+            <div className="stat-value text-red">{dashboardRedDays}</div>
+            <span className="stat-sub">Of {dashboardMonthDays.length} active days</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">MISTAKE TAGGED</span>
+            <div className="stat-value">{dashboardMistakeTradeCount}</div>
+            <span className="stat-sub">Trades this month</span>
+          </div>
+        </div>
+
+        <div className="journal-review-grid">
+          <section className="panel-card journal-review-calendar-panel">
+            <div className="calendar-header">
+              <h2>{monthNames[month]} {year}</h2>
+              <div className="calendar-controls">
+                <button onClick={() => changeMonth(-1)} className="cal-btn" aria-label="Previous month">◄</button>
+                <button onClick={() => setCurrentDate(new Date())} className="cal-btn">Today</button>
+                <button onClick={() => changeMonth(1)} className="cal-btn" aria-label="Next month">►</button>
+              </div>
+            </div>
+            <div className="journal-review-calendar" role="grid" aria-label={`${monthNames[month]} ${year} trading results`}>
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span className="review-calendar-heading" key={day}>{day}</span>)}
+              {Array.from({ length: firstDayOfMonth }).map((_, idx) => <span className="review-calendar-empty" key={`blank-${idx}`} />)}
+              {Array.from({ length: daysInMonth }).map((_, idx) => {
+                const dayNum = idx + 1;
+                const dateStr = `${dashboardMonthPrefix}-${String(dayNum).padStart(2, '0')}`;
+                const dayData = dashboardMonthDays.find((day) => day.date === dateStr);
+                const selected = dashboardReviewDate === dateStr;
+                const tone = dayData ? dayData.totalR > 0 ? 'profit' : dayData.totalR < 0 ? 'loss' : 'flat' : '';
+                return (
+                  <button
+                    type="button"
+                    key={dateStr}
+                    className={`review-calendar-day ${tone} ${selected ? 'selected' : ''}`}
+                    onClick={() => setDashboardSelectedDate(dateStr)}
+                    aria-pressed={selected}
+                    aria-label={`${dateStr}${dayData ? `, ${dayData.totalR >= 0 ? 'plus ' : 'minus '}${Math.abs(dayData.totalR).toFixed(1)} R, ${dayData.trades.length} trades` : ', no logged trades'}`}
+                  >
+                    <span>{dayNum}</span>
+                    {dayData && <small>{dayData.totalR >= 0 ? '+' : ''}{dayData.totalR.toFixed(1)}R</small>}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="review-calendar-legend"><span><i className="profit-dot" /> Profitable</span><span><i className="loss-dot" /> Losing</span></div>
+          </section>
+
+          <section className="panel-card journal-day-review-panel">
             <div className="panel-header space-between">
               <div>
-                <h3>Prop Firm Challenge & Funded Simulator</h3>
-                <p className="panel-sub">
-                  Simulate challenge pass rates, blown accounts, and net profit projections through 10 years
-                </p>
+                <h3>{new Date(`${dashboardReviewDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+                <p className="panel-sub">{dashboardReviewTrades.length} trade{dashboardReviewTrades.length === 1 ? '' : 's'}</p>
               </div>
-              <button
-                className="btn-primary"
-                onClick={runAdvancedMonteCarlo}
-                disabled={mcSource === 'journal' && (!isProfileDataReady || trades.length === 0)}
-              >
-                {mcSource === 'journal' && !isProfileDataReady
-                  ? 'Loading profile trades…'
-                  : mcSource === 'journal' && trades.length === 0
-                    ? 'Log trades to run Monte Carlo'
-                    : '⚡ Run Monte Carlo (500 Sims)'}
-              </button>
+              <strong className={`day-review-total ${dashboardReviewTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0) >= 0 ? 'text-green' : 'text-red'}`}>
+                {dashboardReviewTrades.length ? `${dashboardReviewTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0) >= 0 ? '+' : ''}${dashboardReviewTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0).toFixed(1)}R` : '—'}
+              </strong>
             </div>
-
-            <div className="mc-source-box mb-6">
-              <span className="form-label mr-4">Trading Profile Data Source:</span>
-              <label className="mr-4">
-                <input
-                  type="radio"
-                  name="mcSource"
-                  value="journal"
-                  checked={mcSource === 'journal'}
-                  onChange={() => setMcSource('journal')}
-                />{' '}
-                {isProfileDataReady
-                  ? `Import Logged Data from "${currentProfileObj.name}" (Win Rate: ${winRate}%, Avg Win: +${avgWinR}R, Avg Loss: ${avgLossR}R)`
-                  : `Loading logged trades for "${currentProfileObj.name}"…`}
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="mcSource"
-                  value="custom"
-                  checked={mcSource === 'custom'}
-                  onChange={() => setMcSource('custom')}
-                />{' '}
-                Create Custom Trading Profile
-              </label>
-
-              {mcSource === 'journal' && isProfileDataReady && trades.length === 0 && (
-                <p className="panel-sub text-amber mt-4">
-                  No trades are logged for “{currentProfileObj.name}”. Net profit is $0 because there is no journal data to simulate. Add trades or select a custom profile to run Monte Carlo.
-                </p>
-              )}
-
-              {mcSource === 'custom' && (
-                <div className="form-row mt-4">
-                  <div className="form-group">
-                    <label>Win Rate (%)</label>
-                    <input
-                      type="number"
-                      value={mcCustomProfile.winRate}
-                      onChange={(e) => setMcCustomProfile({ ...mcCustomProfile, winRate: parseFloat(e.target.value) || 0 })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Avg Win (R)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={mcCustomProfile.avgWinR}
-                      onChange={(e) => setMcCustomProfile({ ...mcCustomProfile, avgWinR: parseFloat(e.target.value) || 0 })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Avg Loss (R)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={mcCustomProfile.avgLossR}
-                      onChange={(e) => setMcCustomProfile({ ...mcCustomProfile, avgLossR: parseFloat(e.target.value) || 0 })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Trades / Day</label>
-                    <input
-                      type="number"
-                      value={mcCustomProfile.tradesPerDay}
-                      onChange={(e) => setMcCustomProfile({ ...mcCustomProfile, tradesPerDay: parseInt(e.target.value) || 1 })}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mc-settings-grid mb-6">
-              <div className="mc-setting-card">
-                <h4 className="setting-header">1. Account Setup</h4>
-                <div className="form-group mb-2">
-                  <label>Account Cost ($)</label>
-                  <input
-                    type="number"
-                    value={mcParams.accountCost}
-                    onChange={(e) => setMcParams({ ...mcParams, accountCost: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-                <div className="form-group mb-2">
-                  <label>Account Size ($)</label>
-                  <input
-                    type="number"
-                    value={mcParams.accountSize}
-                    onChange={(e) => setMcParams({ ...mcParams, accountSize: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-                <div className="form-group mb-2">
-                  <label>Risk Per Trade (%)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={mcParams.riskPerTradePct}
-                    onChange={(e) => setMcParams({ ...mcParams, riskPerTradePct: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-                <div className="form-group mb-2">
-                  <label className="mc-toggle-label">
-                    <input
-                      type="checkbox"
-                      checked={mcParams.executionCostsEnabled}
-                      onChange={(e) => setMcParams({ ...mcParams, executionCostsEnabled: e.target.checked })}
-                    />
-                    Include execution costs
-                  </label>
-                </div>
-                {mcParams.executionCostsEnabled && (
-                  <>
-                    <div className="form-row mb-2">
-                      <div className="form-group">
-                        <label>Slippage ($ / trade)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={mcParams.slippageCostPerTrade}
-                          onChange={(e) => setMcParams({ ...mcParams, slippageCostPerTrade: Math.max(0, parseFloat(e.target.value) || 0) })}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Commission ($ / trade)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={mcParams.commissionCostPerTrade}
-                          onChange={(e) => setMcParams({ ...mcParams, commissionCostPerTrade: Math.max(0, parseFloat(e.target.value) || 0) })}
-                        />
-                      </div>
-                    </div>
-                    <div className="form-group mb-2">
-                      <label>Spread cost ($ / trade)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={mcParams.spreadCostPerTrade}
-                        onChange={(e) => setMcParams({ ...mcParams, spreadCostPerTrade: Math.max(0, parseFloat(e.target.value) || 0) })}
-                      />
-                    </div>
-                    <span className="stat-sub mb-2">Costs are dollar amounts per completed trade and reduce each simulated result.</span>
-                  </>
-                )}
-                <div className="form-group mb-2">
-                  <label>Drawdown Type</label>
-                  <select
-                    value={mcParams.drawdownType}
-                    onChange={(e) => setMcParams({ ...mcParams, drawdownType: e.target.value })}
-                  >
-                    <option value="static">Static Balance Drawdown</option>
-                    <option value="trailing">End-of-Day Trailing Drawdown</option>
-                  </select>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Total Max DD (%)</label>
-                    <input
-                      type="number"
-                      value={mcParams.totalMaxDDPct}
-                      onChange={(e) => setMcParams({ ...mcParams, totalMaxDDPct: parseFloat(e.target.value) || 0 })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Daily Max DD (%)</label>
-                    <input
-                      type="number"
-                      value={mcParams.dailyMaxDDPct}
-                      onChange={(e) => setMcParams({ ...mcParams, dailyMaxDDPct: parseFloat(e.target.value) || 0 })}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mc-setting-card">
-                <h4 className="setting-header">2. Challenge Rules</h4>
-                <div className="form-group mb-2">
-                  <label>Pass Structure</label>
-                  <select
-                    value={mcParams.passStructure}
-                    onChange={(e) => setMcParams({ ...mcParams, passStructure: e.target.value })}
-                  >
-                    <option value="two_step">2-Step Challenge</option>
-                    <option value="one_step">1-Step Challenge</option>
-                    <option value="three_step">3-Step Challenge</option>
-                    <option value="instant">Instant Funding (No Eval)</option>
-                  </select>
-                </div>
-                {mcParams.passStructure !== 'instant' && (
-                  <>
-                    <div className="form-row mb-2">
-                      <div className="form-group">
-                        <label>Phase 1 Target (%)</label>
-                        <input
-                          type="number"
-                          value={mcParams.p1TargetPct}
-                          onChange={(e) => setMcParams({ ...mcParams, p1TargetPct: parseFloat(e.target.value) || 0 })}
-                        />
-                      </div>
-                      {(mcParams.passStructure === 'two_step' || mcParams.passStructure === 'three_step') && (
-                        <div className="form-group">
-                          <label>Phase 2 Target (%)</label>
-                          <input
-                            type="number"
-                            value={mcParams.p2TargetPct}
-                            onChange={(e) => setMcParams({ ...mcParams, p2TargetPct: parseFloat(e.target.value) || 0 })}
-                          />
+            {dashboardReviewTrades.length > 0 ? (
+              <div className="journal-day-trade-list">
+                {dashboardReviewTrades.map((trade) => (
+                  <div className="journal-day-trade" key={trade.id}>
+                    <span className="instrument-badge">{trade.instrument}</span>
+                    <div className="journal-day-trade-info">
+                      <strong>{trade.setup || `${trade.direction} trade`}</strong>
+                      <small>{trade.time} · {trade.direction}{(trade.mistakes || []).length ? ` · ${(trade.mistakes || []).join(', ')}` : ''}</small>
+                      {(safeExternalUrl(trade.plannedTradingViewUrl) || safeExternalUrl(trade.tradingViewUrl)) && (
+                        <div className="journal-day-trade-links">
+                          {safeExternalUrl(trade.plannedTradingViewUrl) && <a href={safeExternalUrl(trade.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer">Plan chart ↗</a>}
+                          {safeExternalUrl(trade.tradingViewUrl) && <a href={safeExternalUrl(trade.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Trade chart ↗</a>}
                         </div>
                       )}
                     </div>
-                    {mcParams.passStructure === 'three_step' && (
-                      <div className="form-group mb-2">
-                        <label>Phase 3 Target (%)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={mcParams.p3TargetPct}
-                          onChange={(e) => setMcParams({ ...mcParams, p3TargetPct: Math.max(0, parseFloat(e.target.value) || 0) })}
-                        />
-                      </div>
-                    )}
-                    <div className="form-group mb-2">
-                      <label>Min Trading Days</label>
-                      <input
-                        type="number"
-                        value={mcParams.minTradingDays}
-                        onChange={(e) => setMcParams({ ...mcParams, minTradingDays: parseInt(e.target.value) || 0 })}
-                      />
-                    </div>
-                    <div className="form-group mb-2">
-                      <label className="mc-toggle-label">
-                        <input
-                          type="checkbox"
-                          checked={mcParams.evalConsistencyEnabled}
-                          onChange={(e) => setMcParams({ ...mcParams, evalConsistencyEnabled: e.target.checked })}
-                        />
-                        Apply challenge consistency rule
-                      </label>
-                    </div>
-                    {mcParams.evalConsistencyEnabled && (
-                      <div className="form-group mb-2">
-                        <label>Max single-day profit (% of phase profit)</label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="100"
-                          value={mcParams.evalConsistencyPct}
-                          onChange={(e) => setMcParams({ ...mcParams, evalConsistencyPct: Math.min(100, Math.max(1, parseFloat(e.target.value) || 1)) })}
-                        />
-                        <span className="stat-sub">Largest winning day must be at or below this share of total phase profit.</span>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div className="mc-setting-card">
-                <h4 className="setting-header">3. Funded & Payout Rules</h4>
-                <div className="form-group mb-2">
-                  <label>Funded Profit Target (%) [0 = None]</label>
-                  <input
-                    type="number"
-                    placeholder="0 if no profit target required"
-                    value={mcParams.fundedTargetPct}
-                    onChange={(e) => setMcParams({ ...mcParams, fundedTargetPct: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-                <div className="form-group mb-2">
-                  <label className="mc-toggle-label">
-                    <input
-                      type="checkbox"
-                      checked={mcParams.fundedConsistencyEnabled}
-                      onChange={(e) => setMcParams({ ...mcParams, fundedConsistencyEnabled: e.target.checked })}
-                    />
-                    Apply funded consistency rule
-                  </label>
-                </div>
-                {mcParams.fundedConsistencyEnabled && (
-                  <div className="form-group mb-2">
-                    <label>Max single-day profit (% of funded profit)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={mcParams.fundedConsistencyPct}
-                      onChange={(e) => setMcParams({ ...mcParams, fundedConsistencyPct: Math.min(100, Math.max(1, parseFloat(e.target.value) || 1)) })}
-                    />
-                    <span className="stat-sub">Largest winning day must be at or below this share before a payout.</span>
-                  </div>
-                )}
-                <div className="form-row mb-2">
-                  <div className="form-group">
-                    <label>Payout Split (%)</label>
-                    <input
-                      type="number"
-                      value={mcParams.payoutSplitPct}
-                      onChange={(e) => setMcParams({ ...mcParams, payoutSplitPct: parseFloat(e.target.value) || 0 })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Min Days to Payout</label>
-                    <input
-                      type="number"
-                      value={mcParams.minDaysToPayout}
-                      onChange={(e) => setMcParams({ ...mcParams, minDaysToPayout: parseInt(e.target.value) || 0 })}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {mcResults && (
-              <>
-                <div className="analytics-section-title">Challenge Odds & Timeline Metrics</div>
-                <div className="stats-grid mb-6">
-                  <div className="stat-card border-green-glow">
-                    <span className="stat-label">PASS RATE</span>
-                    <div className="stat-value text-green">{mcResults.passRate}%</div>
-                    <span className="stat-sub">Probability of passing challenge</span>
-                  </div>
-
-                  <div className="stat-card border-red-glow">
-                    <span className="stat-label">BLOWN ACCOUNTS</span>
-                    <div className="stat-value text-red">{mcResults.blownCount} / {mcParams.numSimulations}</div>
-                    <span className="stat-sub">Accounts breached DD limits</span>
-                  </div>
-
-                  <div className="stat-card">
-                    <span className="stat-label">AVG DAYS TO PASS</span>
-                    <div className="stat-value text-white">{mcResults.avgDaysToPass} Days</div>
-                    <span className="stat-sub">Evaluation duration</span>
-                  </div>
-
-                  <div className="stat-card">
-                    <span className="stat-label">DAYS TO FIRST PAYOUT</span>
-                    <div className="stat-value text-green">{mcResults.avgDaysToPayout} Days</div>
-                    <span className="stat-sub">From day 1 to first check</span>
-                  </div>
-                </div>
-
-                <div className="analytics-section-title">Average Net Profit by Time Horizon</div>
-                <p className="panel-sub mb-4">Average realized payouts minus the account fee, across all simulations.</p>
-                <div className="mc-timeframe-grid">
-                  {mcResults.timeframeSummary.map((timeframe) => (
-                    <div className="stat-card" key={timeframe.label}>
-                      <span className="stat-label">{timeframe.label}</span>
-                      <div className={`stat-value ${timeframe.avgNetProfit >= 0 ? 'text-green' : 'text-red'}`}>
-                        {timeframe.avgNetProfit < 0 ? '-$' : '$'}{Math.abs(timeframe.avgNetProfit).toLocaleString()}
-                      </div>
-                      <span className="stat-sub">Avg payouts: ${timeframe.avgPayout.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </main>
-
-      {/* DAILY CALENDAR DETAILS */}
-      {selectedDayTrades && (
-        <div className="modal-overlay" onClick={() => setSelectedDayTrades(null)}>
-          <div className="modal-content calendar-day-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <span className="modal-sub">DAILY TRADES · {currentProfileObj.name}</span>
-                <h2>
-                  {new Date(`${selectedDayTrades.dateStr}T00:00:00`).toLocaleDateString(undefined, {
-                    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-                  })}
-                </h2>
-              </div>
-              <button className="close-btn" onClick={() => setSelectedDayTrades(null)} aria-label="Close daily trades">
-                ✕
-              </button>
-            </div>
-
-            {selectedDayTradeList.length > 0 ? (
-              <div className="trades-list mb-6">
-                {selectedDayTradeList.map((trade) => (
-                  <div className="trade-row calendar-trade-row" key={trade.id}>
-                    <span className="instrument-badge">{trade.instrument}</span>
-                    <div className="trade-info">
-                      <div className="trade-title">{trade.direction} · {trade.setup || 'Trade entry'}</div>
-                      <div className="trade-meta">{trade.time || 'Time not set'}{trade.notes ? ` · ${trade.notes}` : ''}</div>
-                    </div>
-                    <span className={`trade-result ${trade.resultR >= 0 ? 'text-green' : 'text-red'}`}>
-                      {trade.resultR >= 0 ? '+' : ''}{Number(trade.resultR || 0).toFixed(1)}R
-                    </span>
-                    <div className="trade-actions calendar-trade-actions">
-                      <button className="action-btn icon-btn" onClick={() => setSelectedTradeDetails(trade)} aria-label={`View ${trade.instrument} trade details`} title="View trade details">
-                        👁️
-                      </button>
-                      <button className="action-btn" onClick={() => handleEditTrade(trade)} aria-label={`Edit ${trade.instrument} trade`} title="Edit trade">
-                        ✏️
-                      </button>
-                      <button className="action-btn" onClick={() => handleDeleteTrade(trade.id)} aria-label={`Delete ${trade.instrument} trade`} title="Delete trade">
-                        🗑️
-                      </button>
+                    <strong className={parseFloat(trade.resultR) >= 0 ? 'text-green' : 'text-red'}>{parseFloat(trade.resultR) >= 0 ? '+' : ''}{(parseFloat(trade.resultR) || 0).toFixed(1)}R</strong>
+                    <div className="journal-day-trade-actions">
+                      <button type="button" className="action-btn icon-btn" onClick={() => setSelectedTradeDetails(trade)} aria-label={`View ${trade.instrument} trade details`} title="View trade details">👁️</button>
+                      <button type="button" className="action-btn edit-btn" onClick={() => handleEditTrade(trade)} aria-label={`Edit ${trade.instrument} trade`} title="Edit trade">✏️</button>
+                      <button type="button" className="action-btn delete-btn" onClick={() => handleDeleteTrade(trade.id)} aria-label={`Delete ${trade.instrument} trade`} title="Delete trade">🗑️</button>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="panel-sub mb-6">No trades logged for this date.</p>
+              <div className="journal-empty-day">No trades logged for this date.</div>
             )}
-
-            <button className="btn-primary" onClick={() => handleAddTradeOnDate(selectedDayTrades.dateStr)}>
-              + Add trade for this date
-            </button>
-          </div>
+            <button className="cal-btn journal-add-day-trade" onClick={() => handleAddTradeOnDate(dashboardReviewDate)}>＋ Add trade for this date</button>
+          </section>
         </div>
-      )}
 
-      {/* MANAGE PROFILES MODAL */}
-      {isProfileModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsProfileModalOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <span className="modal-sub">PROFILE MANAGEMENT</span>
-                <h2>Journal Profiles</h2>
-              </div>
-              <button className="close-btn" onClick={() => setIsProfileModalOpen(false)}>
-                ✕
-              </button>
+        <section className="journal-habits-section">
+          <div className="analytics-section-title">Daily habits · {monthNames[month]}</div>
+          <div className="journal-habits-grid">
+            <div className="panel-card journal-habit-card">
+              <span className="stat-label">MOST COMMON MISTAKE</span>
+              {dashboardMistakeSummary[0] ? (
+                <>
+                  <strong>{dashboardMistakeSummary[0].tag}</strong>
+                  <span>{dashboardMistakeSummary[0].count} trades · {dashboardMistakeSummary[0].avgR >= 0 ? '+' : ''}{dashboardMistakeSummary[0].avgR.toFixed(2)}R average</span>
+                </>
+              ) : <span>No mistake tags recorded this month.</span>}
             </div>
+            <div className="panel-card journal-habit-card">
+              <span className="stat-label">STRONGEST MINDSET TAG</span>
+              {dashboardMindsetSummary[0] ? (
+                <>
+                  <strong>{dashboardMindsetSummary[0].label}</strong>
+                  <span>{dashboardMindsetSummary[0].count} trades · {dashboardMindsetSummary[0].avgR >= 0 ? '+' : ''}{dashboardMindsetSummary[0].avgR.toFixed(2)}R average</span>
+                </>
+              ) : <span>No psychology tags recorded this month.</span>}
+            </div>
+          </div>
+        </section>
 
-            <form onSubmit={handleCreateProfile} className="modal-form mb-6">
-              <div className="form-group">
-                <label>Create New Journal Profile</label>
-                <div className="form-row">
-                  <input
-                    type="text"
-                    placeholder="e.g. 50K Prop Evaluation, Crypto Scalping..."
-                    value={newProfileName}
-                    onChange={(e) => setNewProfileName(e.target.value)}
-                    required
-                  />
-                  <button type="submit" className="btn-primary">
-                    + Create
-                  </button>
-                </div>
-              </div>
-            </form>
+      </>
+    )}
 
-            <div className="analytics-section-title">Existing Profiles</div>
-            <div className="trades-list">
-              {profiles.map((p) => (
-                <div key={p.id} className="trade-row">
-                  <div className="trade-info">
-                    <div className="trade-title">{p.name}</div>
-                    <div className="trade-meta">
-                      {p.id === activeProfileId ? '(Currently Active)' : ''}
+    {/* TRADES TAB */}
+    {activeTab === 'trades' && (
+      <div className="panel-card">
+        <section className="trade-lab-explore">
+          <div className="trade-lab-section-heading">
+            <div><h3>Explore results</h3><p className="panel-sub">Filter the active profile to compare your trading performance.</p></div>
+            <span className="trade-lab-count">{currentProfileObj.name} · {filteredTrades.length} matching trades</span>
+          </div>
+          <div className="trade-lab-filters" aria-label="Performance filters">
+            <label><span>Instrument</span><select value={tradeFilters.instrument} onChange={(e) => { setTradeFilters({ ...tradeFilters, instrument: e.target.value }); setTradePage(1); }}><option value="all">All instruments</option>{tradeInstrumentOptions.map((instrument) => <option key={instrument} value={instrument}>{instrument}</option>)}</select></label>
+            <label><span>Direction</span><select value={tradeFilters.direction} onChange={(e) => { setTradeFilters({ ...tradeFilters, direction: e.target.value }); setTradePage(1); }}><option value="all">Long and short</option><option value="Long">Long</option><option value="Short">Short</option></select></label>
+            <label><span>Entry time</span><select value={tradeFilters.timeOfDay} onChange={(e) => { setTradeFilters({ ...tradeFilters, timeOfDay: e.target.value }); setTradePage(1); }}><option value="all">All entry times</option><option value="00-06">00:00–05:59</option><option value="06-12">06:00–11:59</option><option value="12-18">12:00–17:59</option><option value="18-24">18:00–23:59</option></select></label>
+            <label><span>Date range</span><select value={tradeFilters.period} onChange={(e) => { setTradeFilters({ ...tradeFilters, period: e.target.value }); setTradePage(1); }}><option value="all">All time</option><option value="month">This month</option><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option></select></label>
+          </div>
+        </section>
+
+        <div className="trade-lab-stats">
+          <div className="stat-card"><span className="stat-label">MATCHING TRADES</span><div className="stat-value text-white">{filteredTrades.length}</div><span className="stat-sub">With current filters</span></div>
+          <div className="stat-card"><span className="stat-label">WIN RATE</span><div className="stat-value text-white">{labWinRate}%</div><span className="stat-sub">{labWins.length} wins · {labLosses.length} losses</span></div>
+          <div className="stat-card"><span className="stat-label">NET RESULT</span><div className={`stat-value ${labNetR >= 0 ? 'text-green' : 'text-red'}`}>{labNetR >= 0 ? '+' : ''}{labNetR.toFixed(1)}R</div><span className="stat-sub">Across matching trades</span></div>
+          <div className="stat-card"><span className="stat-label">EXPECTANCY</span><div className={`stat-value ${labExpectancy >= 0 ? 'text-green' : 'text-red'}`}>{labExpectancy >= 0 ? '+' : ''}{labExpectancy.toFixed(2)}R</div><span className="stat-sub">Profit factor {labProfitFactor}</span></div>
+        </div>
+
+        <div className="trade-lab-chart-grid">
+          <section className="panel-card trade-lab-chart-card">
+            <div className="panel-header space-between"><div><h3>Results by instrument</h3><p className="panel-sub">Net R · filtered trades</p></div><span className="trade-lab-count">{labInstrumentStats.length} assets</span></div>
+            {labInstrumentStats.length ? <div className="trade-lab-instrument-list">{labInstrumentStats.map((item) => <div className="trade-lab-instrument-row" key={item.symbol}><strong>{item.symbol}</strong><div className="trade-lab-track"><div className={`trade-lab-fill ${item.netR < 0 ? 'negative' : ''}`} style={{ width: `${Math.max(3, Math.abs(item.netR) / labMaxInstrumentR * 100)}%` }} /></div><b className={item.netR >= 0 ? 'text-green' : 'text-red'}>{item.netR >= 0 ? '+' : ''}{item.netR.toFixed(1)}R</b><small>{item.count}</small></div>)}</div> : <p className="trade-lab-empty">No trades match these filters.</p>}
+          </section>
+          <section className="panel-card trade-lab-chart-card">
+            <div className="panel-header"><h3>Trade results</h3><p className="panel-sub">R per trade · chronological</p></div>
+            {labChartTrades.length ? <div className="trade-lab-bars" role="img" aria-label="Chronological results for matching trades">{labChartTrades.map((trade, index) => { const result = parseFloat(trade.resultR) || 0; return <span key={trade.id} className={`trade-lab-bar ${result < 0 ? 'negative' : ''}`} style={{ height: `${Math.max(5, Math.abs(result) / labChartMaxR * 100)}%` }} title={`${trade.date} · ${trade.instrument} · ${result >= 0 ? '+' : ''}${result.toFixed(1)}R`}><i>{index + 1}</i></span>; })}</div> : <p className="trade-lab-empty">Log trades in this profile to see results.</p>}
+            {labChartTrades.length > 0 && <div className="trade-lab-chart-caption"><span>Trade 1</span><span>Trade number →</span><span>Trade {labChartTrades.length}</span></div>}
+          </section>
+        </div>
+
+        <div className="trades-tab-header">
+          <div>
+            <h3>Recent matching trades</h3>
+            <p className="panel-sub">Showing {filteredTrades.length} of {trades.length} logged trades · Total logged costs: ${totalLoggedTradeCosts.toFixed(2)}</p>
+          </div>
+          <input
+            type="text"
+            placeholder="Search instrument or custom name, setup, notes..."
+            value={searchTerm}
+            onChange={(e) => { setSearchTerm(e.target.value); setTradePage(1); }}
+            className="trades-search-input"
+          />
+        </div>
+
+        <details className="trade-extra-filters">
+          <summary>More filters <span>Psychology and mistake tags</span></summary>
+          <div className="trade-filter-bar" aria-label="Additional trade filters">
+          <label>
+            <span>Psychology</span>
+            <select value={tradeFilters.psychology} onChange={(e) => { setTradeFilters({ ...tradeFilters, psychology: e.target.value }); setTradePage(1); }}>
+              <option value="all">All psychology tags</option>
+              {tradePsychologyOptions.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Mistake tag</span>
+            <select value={tradeFilters.mistake} onChange={(e) => { setTradeFilters({ ...tradeFilters, mistake: e.target.value }); setTradePage(1); }}>
+              <option value="all">All mistake tags</option>
+              {MISTAKE_TAGS.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+            </select>
+          </label>
+        </div>
+        </details>
+
+        <details className="mistake-performance">
+          <summary>Mistake performance <span>See how trades with each mistake tag performed</span></summary>
+          {mistakePerformance.length > 0 ? (
+            <div className="mistake-performance-table-wrap">
+              <table className="mistake-performance-table">
+                <thead>
+                  <tr><th>Mistake tag</th><th>Trades</th><th>Win rate</th><th>Net result</th><th>Average / trade</th></tr>
+                </thead>
+                <tbody>
+                  {mistakePerformance.map((stat) => (
+                    <tr key={stat.tag}>
+                      <td>{stat.tag}</td>
+                      <td>{stat.count}</td>
+                      <td>{stat.winRate}%</td>
+                      <td className={stat.netR >= 0 ? 'text-green' : 'text-red'}>{stat.netR >= 0 ? '+' : ''}{stat.netR.toFixed(1)}R</td>
+                      <td className={stat.avgR >= 0 ? 'text-green' : 'text-red'}>{stat.avgR >= 0 ? '+' : ''}{stat.avgR.toFixed(2)}R</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="panel-sub">Each trade contributes to every mistake tag selected for it. Results use all trades in this profile.</p>
+            </div>
+          ) : (
+            <p className="mistake-performance-empty">No mistake tags logged yet. Add tags to trades to build this report.</p>
+          )}
+        </details>
+
+        <div className="full-trades-table-container">
+          <table className="full-trades-table">
+            <thead>
+              <tr>
+                <th>Actions</th>
+                <th>Date / Time</th>
+                <th>Pair</th>
+                <th>Dir</th>
+                <th>Setup</th>
+                <th>Plan</th>
+                <th>Actual Entry</th>
+                <th>Actual SL</th>
+                <th>Actual Exit</th>
+                <th>Result (R) / Costs</th>
+                <th>Mindset / Mistakes</th>
+                <th>Charts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedTrades.map((t) => (
+                <tr
+                  key={t.id}
+                  className="trade-row-clickable"
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if (!event.target.closest('button, a')) setSelectedTradeDetails(t);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      setSelectedTradeDetails(t);
+                    }
+                  }}
+                  aria-label={`Open ${t.instrument || 'trade'} details`}
+                >
+                  <td>
+                    <div className="trade-actions">
+                      <button
+                        className="action-btn icon-btn"
+                        onClick={() => setSelectedTradeDetails(t)}
+                        title="View trade details"
+                        aria-label={`View ${t.instrument || 'trade'} details`}
+                      >
+                        👁️
+                      </button>
+                      <button
+                        className="action-btn edit-btn"
+                        onClick={() => handleEditTrade(t)}
+                        title="Edit trade"
+                        aria-label={`Edit ${t.instrument || 'trade'}`}
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        className="action-btn delete-btn"
+                        onClick={() => handleDeleteTrade(t.id)}
+                        title="Delete trade"
+                        aria-label={`Delete ${t.instrument || 'trade'}`}
+                      >
+                        🗑️
+                      </button>
                     </div>
-                  </div>
-                  {p.id !== activeProfileId && (
-                    <button
-                      className="cal-btn mr-2"
-                      onClick={() => switchActiveProfile(p.id)}
-                    >
-                      Switch
-                    </button>
-                  )}
-                  {profiles.length > 1 && (
-                    <button
-                      className="action-btn delete-btn"
-                      onClick={() => handleDeleteProfile(p.id)}
-                      title="Delete profile"
-                    >
-                      🗑️
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ADD / EDIT TRADE MODAL */}
-      {isModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <span className="modal-sub">{formData.id ? 'EDIT ENTRY' : 'NEW ENTRY'} · {currentProfileObj.name}</span>
-                <h2>{formData.id ? 'Edit trade' : 'Add trade'}</h2>
-              </div>
-              <button className="close-btn" onClick={() => setIsModalOpen(false)}>
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="modal-form">
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Date</label>
-                  <input
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Time</label>
-                  <input
-                    type="time"
-                    value={formData.time}
-                    onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Instrument</label>
-                  <div className="instrument-field-control">
-                    <input
-                      type="text"
-                      value={formData.instrument}
-                      onChange={(e) => setFormData({ ...formData, instrument: e.target.value })}
-                      placeholder="e.g. NQ, GC, BTC"
-                      required
-                    />
-                    <details className="instrument-picker">
-                      <summary aria-label="Expand quick-pick instruments" title="Quick-pick instruments" />
-                      <div className="instrument-picker-menu">
-                        <div className="instrument-picker-heading">Quick-pick instruments <span>20 assets · Selected: {formData.instrument || 'Custom'}</span></div>
-                        {INSTRUMENT_PRESETS.map((group) => (
-                          <div className="instrument-picker-group" key={group.category}>
-                            <span className="instrument-group-label">{group.category}</span>
-                            <div className="instrument-chip-list">
-                              {group.assets.map((asset) => (
-                                <button
-                                  type="button"
-                                  key={asset}
-                                  className={`instrument-chip ${formData.instrument === asset ? 'selected' : ''}`}
-                                  aria-pressed={formData.instrument === asset}
-                                  onClick={() => setFormData({ ...formData, instrument: asset })}
-                                >
-                                  {asset}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
+                  </td>
+                  <td className="text-muted">
+                    {t.date} <br />
+                    <span className="text-xs">{t.time}</span>
+                  </td>
+                  <td>
+                    <span className="instrument-badge">{t.instrument}</span>
+                  </td>
+                  <td className={t.direction === 'Long' ? 'text-green' : 'text-red'}>
+                    {t.direction}
+                  </td>
+                  <td>{t.setup}</td>
+                  <td className="trade-plan-cell">
+                    {t.plannedEntry || t.plannedStopLoss || t.plannedTakeProfit ? (
+                      <>
+                        <span>E: {t.plannedEntry || '—'}</span>
+                        <span>SL: {t.plannedStopLoss || '—'}</span>
+                        <span>TP: {t.plannedTakeProfit || '—'}</span>
+                      </>
+                    ) : '-'}
+                  </td>
+                  <td>{t.entry || '-'}</td>
+                  <td>{t.stopLoss || '-'}</td>
+                  <td>{t.exit || '-'}</td>
+                  <td className={`font-bold ${t.resultR >= 0 ? 'text-green' : 'text-red'}`}>
+                    <span>{t.resultR >= 0 ? `+${t.resultR}R` : `${t.resultR}R`}</span>
+                    {getTradeCosts(t) > 0 && <small className="trade-cost-meta">Cost ${getTradeCosts(t).toFixed(2)}</small>}
+                  </td>
+                  <td>
+                    <div className="trade-tags">
+                      {t.psychology &&
+                        t.psychology.map((tag) => (
+                          <span key={tag} className="tag-badge">
+                            {tag}
+                          </span>
                         ))}
-                      </div>
-                    </details>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>Direction</label>
-                  <select
-                    value={formData.direction}
-                    onChange={(e) => setFormData({ ...formData, direction: e.target.value })}
-                  >
-                    <option value="Long">Long</option>
-                    <option value="Short">Short</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="entry-mode-picker" role="group" aria-label="Trade entry mode">
-                <button type="button" className={`entry-mode-option ${tradeEntryMode === 'standard' ? 'selected' : ''}`} aria-pressed={tradeEntryMode === 'standard'} onClick={() => setTradeEntryMode('standard')}>
-                  <strong>Trade details</strong>
-                  <span>Log the trade as usual</span>
-                </button>
-                <button type="button" className={`entry-mode-option ${tradeEntryMode === 'compare' ? 'selected' : ''}`} aria-pressed={tradeEntryMode === 'compare'} onClick={() => setTradeEntryMode('compare')}>
-                  <strong>Pre-trade plan vs actual</strong>
-                  <span>Record your plan and compare execution</span>
-                </button>
-              </div>
-
-              {tradeEntryMode === 'compare' && (
-                <details className="pretrade-plan-details">
-                  <summary>Pre-Trade Plan <span>Optional · enter what you planned before the trade</span></summary>
-                  <div className="pretrade-plan-fields">
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>Planned Entry</label>
-                        <input type="number" step="any" value={formData.plannedEntry || ''} onChange={(e) => setFormData({ ...formData, plannedEntry: e.target.value })} />
-                      </div>
-                      <div className="form-group">
-                        <label>Planned Stop Loss</label>
-                        <input type="number" step="any" value={formData.plannedStopLoss || ''} onChange={(e) => setFormData({ ...formData, plannedStopLoss: e.target.value })} />
-                      </div>
+                      {(t.mistakes || []).map((tag) => (
+                        <span key={`mistake-${tag}`} className="tag-badge mistake-tag-badge">! {tag}</span>
+                      ))}
                     </div>
-                    <div className="form-group mb-4">
-                      <label>Planned Take Profit</label>
-                      <input type="number" step="any" value={formData.plannedTakeProfit || ''} onChange={(e) => setFormData({ ...formData, plannedTakeProfit: e.target.value })} />
+                  </td>
+                  <td>
+                    <div className="trade-actions">
+                      {safeExternalUrl(t.plannedTradingViewUrl) && (
+                        <a className="tradingview-table-link" href={safeExternalUrl(t.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer" title="Open pre-trade TradingView chart">Plan ↗</a>
+                      )}
+                      {t.plannedScreenshotUrl && (
+                        <button className="action-btn icon-btn" onClick={() => setPreviewImage(t.plannedScreenshotUrl)} title="View pre-trade plan chart" aria-label="View pre-trade plan chart">📋</button>
+                      )}
+                      {safeExternalUrl(t.tradingViewUrl) && (
+                        <a className="tradingview-table-link" href={safeExternalUrl(t.tradingViewUrl)} target="_blank" rel="noopener noreferrer" title="Open executed trade TradingView chart">Trade ↗</a>
+                      )}
+                      {t.screenshotUrl && (
+                        <button className="action-btn icon-btn" onClick={() => setPreviewImage(t.screenshotUrl)} title="View after-trade chart" aria-label="View after-trade chart">🖼️</button>
+                      )}
+                      {!t.plannedTradingViewUrl && !t.tradingViewUrl && !t.plannedScreenshotUrl && !t.screenshotUrl && '-'}
                     </div>
-                    <div className="form-group">
-                      <label>Pre-Trade TradingView Link</label>
-                      <input type="url" value={formData.plannedTradingViewUrl || ''} onChange={(e) => setFormData({ ...formData, plannedTradingViewUrl: e.target.value })} placeholder="https://www.tradingview.com/chart/..." />
-                      <small className="panel-sub">Paste a shareable TradingView chart link for your plan.</small>
-                      {safeExternalUrl(formData.plannedTradingViewUrl) && <a className="chart-open-link" href={safeExternalUrl(formData.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer">Open planned chart ↗</a>}
-                      {formData.plannedScreenshotUrl && <div className="legacy-screenshot-note"><span>Existing saved screenshot</span><button type="button" className="cal-btn" onClick={() => setPreviewImage(formData.plannedScreenshotUrl)}>View</button><button type="button" className="cal-btn" onClick={() => setFormData({ ...formData, plannedScreenshotUrl: '' })}>Remove</button></div>}
-                    </div>
-                  </div>
-                </details>
+                  </td>
+                </tr>
+              ))}
+              {filteredTrades.length === 0 && (
+                <tr>
+                  <td colSpan="12" className="text-center py-6 text-muted">
+                    No trades match these search and filter settings.
+                  </td>
+                </tr>
               )}
+            </tbody>
+          </table>
+        </div>
+        <div className="trades-pagination">
+          <span>Page {currentTradePage} of {totalTradePages} · {tradesPerPage} trades per page</span>
+          <div>
+            <button className="cal-btn" type="button" disabled={currentTradePage <= 1} onClick={() => setTradePage((page) => Math.max(1, page - 1))}>← Previous</button>
+            <button className="cal-btn" type="button" disabled={currentTradePage >= totalTradePages} onClick={() => setTradePage((page) => Math.min(totalTradePages, page + 1))}>Next →</button>
+          </div>
+        </div>
+      </div>
+    )}
 
-              <details className="pretrade-plan-details actual-trade-details" open>
-                <summary>{tradeEntryMode === 'compare' ? 'Actual Trade Details' : 'Trade Details'} <span>Entry, exit, risk, results and notes</span></summary>
-                <div className="pretrade-plan-fields">
+    {/* TOP DOWN ANALYSIS TAB */}
+    {activeTab === 'topdown' && (
+      <div className="top-down-page">
+        <section className="panel-card top-down-intro">
+          <div>
+            <h3>Top Down Analysis Cards</h3>
+            <p className="panel-sub">Save a dated market view with your own timeframe, chart screenshot, links, and description. Cards are saved for this profile in this browser.</p>
+          </div>
+          <div className="top-down-create-controls">
+            <label className="top-down-create-date">
+              <span>Date</span>
+              <input type="date" value={topDownSelectedDate} onChange={(event) => setTopDownSelectedDate(event.target.value)} aria-label="Choose analysis card date" />
+            </label>
+            <button className="btn-primary" type="button" onClick={() => openTopDownCardForm()}>＋ Create analysis card</button>
+          </div>
+        </section>
+        {topDownStorageError && <p className="top-down-error" role="alert">{topDownStorageError}</p>}
+        {topDownCards.length ? (
+          <div className="top-down-card-list">
+            {topDownCards.map((card) => (
+              <article className="panel-card top-down-analysis-card" key={card.id}>
+                <div className="top-down-analysis-header">
+                  <div className="top-down-analysis-meta">
+                    <span className="top-down-timeframe-badge">{card.timeframe || 'Custom timeframe'}</span>
+                    <time dateTime={card.date}>{card.date ? new Date(`${card.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' }) : 'Date not set'}</time>
+                  </div>
+                  <div className="top-down-card-actions">
+                    <button className="action-btn icon-btn" type="button" onClick={() => openTopDownCardForm(card)} aria-label={`Edit ${card.title || 'analysis card'}`} title="Edit card">✏️</button>
+                    <button className="action-btn icon-btn" type="button" onClick={() => deleteTopDownCard(card.id)} aria-label={`Delete ${card.title || 'analysis card'}`} title="Delete card">🗑️</button>
+                  </div>
+                </div>
+                <h3>{card.title || card.timeframe || 'Analysis card'}</h3>
+                {card.description && <p className="top-down-card-description">{card.description}</p>}
+                {card.imageData && <button className="top-down-card-image" type="button" onClick={() => setPreviewImage(card.imageData)} title="View full screenshot"><img src={card.imageData} alt={`${card.title || card.timeframe} chart screenshot`} /></button>}
+                <div className="top-down-card-links">
+                  {safeExternalUrl(card.tradingViewUrl) && <a className="cal-btn" href={safeExternalUrl(card.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Open TradingView ↗</a>}
+                  {safeExternalUrl(card.referenceUrl) && <a className="cal-btn" href={safeExternalUrl(card.referenceUrl)} target="_blank" rel="noopener noreferrer">Open reference ↗</a>}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <section className="panel-card top-down-empty-state">
+            <span aria-hidden="true">🗂️</span>
+            <h3>No analysis cards yet</h3>
+            <p className="panel-sub">Choose a date above and create your first card. Add any timeframe, chart screenshot, links, and a description.</p>
+            <button className="btn-primary" type="button" onClick={() => openTopDownCardForm()}>＋ Create analysis card</button>
+          </section>
+        )}
+      </div>
+    )}
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Entry</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={formData.entry}
-                    onChange={(e) => setFormData({ ...formData, entry: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Stop Loss</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={formData.stopLoss}
-                    onChange={(e) => setFormData({ ...formData, stopLoss: e.target.value })}
-                  />
-                </div>
+    {/* MONTE CARLO TAB */}
+    {activeTab === 'simulator' && (
+      <div className="panel-card">
+        <div className="panel-header space-between">
+          <div>
+            <h3>Prop Firm Challenge & Funded Simulator</h3>
+            <p className="panel-sub">
+              Simulate challenge pass rates, blown accounts, and net profit projections through 10 years
+            </p>
+          </div>
+          <button
+            className="btn-primary"
+            onClick={runAdvancedMonteCarlo}
+            disabled={mcSource === 'journal' && (!isProfileDataReady || trades.length === 0)}
+          >
+            {mcSource === 'journal' && !isProfileDataReady
+              ? 'Loading profile trades…'
+              : mcSource === 'journal' && trades.length === 0
+                ? 'Log trades to run Monte Carlo'
+                : '⚡ Run Monte Carlo (500 Sims)'}
+          </button>
+        </div>
+
+        <div className="mc-source-box mb-6">
+          <span className="form-label mr-4">Trading Profile Data Source:</span>
+          <label className="mr-4">
+            <input
+              type="radio"
+              name="mcSource"
+              value="journal"
+              checked={mcSource === 'journal'}
+              onChange={() => setMcSource('journal')}
+            />{' '}
+            {isProfileDataReady
+              ? `Import Logged Data from "${currentProfileObj.name}" (Win Rate: ${winRate}%, Avg Win: +${avgWinR}R, Avg Loss: ${avgLossR}R)`
+              : `Loading logged trades for "${currentProfileObj.name}"…`}
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="mcSource"
+              value="custom"
+              checked={mcSource === 'custom'}
+              onChange={() => setMcSource('custom')}
+            />{' '}
+            Create Custom Trading Profile
+          </label>
+
+          {mcSource === 'journal' && isProfileDataReady && trades.length === 0 && (
+            <p className="panel-sub text-amber mt-4">
+              No trades are logged for “{currentProfileObj.name}”. Net profit is $0 because there is no journal data to simulate. Add trades or select a custom profile to run Monte Carlo.
+            </p>
+          )}
+
+          {mcSource === 'custom' && (
+            <div className="form-row mt-4">
+              <div className="form-group">
+                <label>Win Rate (%)</label>
+                <input
+                  type="number"
+                  value={mcCustomProfile.winRate}
+                  onChange={(e) => setMcCustomProfile({ ...mcCustomProfile, winRate: parseFloat(e.target.value) || 0 })}
+                />
               </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Take Profit</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={formData.takeProfit}
-                    onChange={(e) => setFormData({ ...formData, takeProfit: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Exit</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={formData.exit}
-                    onChange={(e) => setFormData({ ...formData, exit: e.target.value })}
-                  />
-                </div>
+              <div className="form-group">
+                <label>Avg Win (R)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={mcCustomProfile.avgWinR}
+                  onChange={(e) => setMcCustomProfile({ ...mcCustomProfile, avgWinR: parseFloat(e.target.value) || 0 })}
+                />
               </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Risk ($)</label>
-                  <input
-                    type="number"
-                    value={formData.risk}
-                    onChange={(e) => setFormData({ ...formData, risk: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Result (R)</label>
-                  <input
-                    type="text"
-                    value={formData.resultR}
-                    onChange={(e) => setFormData({ ...formData, resultR: e.target.value })}
-                    placeholder="Auto-calculated or e.g. 2.8"
-                    required
-                  />
-                </div>
+              <div className="form-group">
+                <label>Avg Loss (R)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={mcCustomProfile.avgLossR}
+                  onChange={(e) => setMcCustomProfile({ ...mcCustomProfile, avgLossR: parseFloat(e.target.value) || 0 })}
+                />
               </div>
+              <div className="form-group">
+                <label>Trades / Day</label>
+                <input
+                  type="number"
+                  value={mcCustomProfile.tradesPerDay}
+                  onChange={(e) => setMcCustomProfile({ ...mcCustomProfile, tradesPerDay: parseInt(e.target.value) || 1 })}
+                />
+              </div>
+            </div>
+          )}
+        </div>
 
-              <div className="form-row trade-cost-inputs">
-                <div className="form-group">
-                  <label>Commission cost ($ / trade)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={formData.commissionCost || ''}
-                    onChange={(e) => setFormData({ ...formData, commissionCost: e.target.value })}
-                    placeholder="0"
-                  />
+        <div className="mc-settings-grid mb-6">
+          <div className="mc-setting-card">
+            <h4 className="setting-header">1. Account Setup</h4>
+            <div className="form-group mb-2">
+              <label>Account Cost ($)</label>
+              <input
+                type="number"
+                value={mcParams.accountCost}
+                onChange={(e) => setMcParams({ ...mcParams, accountCost: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="form-group mb-2">
+              <label>Account Size ($)</label>
+              <input
+                type="number"
+                value={mcParams.accountSize}
+                onChange={(e) => setMcParams({ ...mcParams, accountSize: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="form-group mb-2">
+              <label>Risk Per Trade (%)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={mcParams.riskPerTradePct}
+                onChange={(e) => setMcParams({ ...mcParams, riskPerTradePct: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="form-group mb-2">
+              <label className="mc-toggle-label">
+                <input
+                  type="checkbox"
+                  checked={mcParams.executionCostsEnabled}
+                  onChange={(e) => setMcParams({ ...mcParams, executionCostsEnabled: e.target.checked })}
+                />
+                Include execution costs
+              </label>
+            </div>
+            {mcParams.executionCostsEnabled && (
+              <>
+                <div className="form-row mb-2">
+                  <div className="form-group">
+                    <label>Slippage ($ / trade)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={mcParams.slippageCostPerTrade}
+                      onChange={(e) => setMcParams({ ...mcParams, slippageCostPerTrade: Math.max(0, parseFloat(e.target.value) || 0) })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Commission ($ / trade)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={mcParams.commissionCostPerTrade}
+                      onChange={(e) => setMcParams({ ...mcParams, commissionCostPerTrade: Math.max(0, parseFloat(e.target.value) || 0) })}
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
+                <div className="form-group mb-2">
                   <label>Spread cost ($ / trade)</label>
                   <input
                     type="number"
                     min="0"
-                    step="any"
-                    value={formData.spreadCost || ''}
-                    onChange={(e) => setFormData({ ...formData, spreadCost: e.target.value })}
-                    placeholder="0"
+                    step="0.01"
+                    value={mcParams.spreadCostPerTrade}
+                    onChange={(e) => setMcParams({ ...mcParams, spreadCostPerTrade: Math.max(0, parseFloat(e.target.value) || 0) })}
                   />
                 </div>
-              </div>
-              <div className="trade-cost-total">Combined execution cost <strong>${((parseFloat(formData.commissionCost) || 0) + (parseFloat(formData.spreadCost) || 0)).toFixed(2)}</strong> per trade</div>
-
+                <span className="stat-sub mb-2">Costs are dollar amounts per completed trade and reduce each simulated result.</span>
+              </>
+            )}
+            <div className="form-group mb-2">
+              <label>Drawdown Type</label>
+              <select
+                value={mcParams.drawdownType}
+                onChange={(e) => setMcParams({ ...mcParams, drawdownType: e.target.value })}
+              >
+                <option value="static">Static Balance Drawdown</option>
+                <option value="trailing">End-of-Day Trailing Drawdown</option>
+              </select>
+            </div>
+            <div className="form-row">
               <div className="form-group">
-                <label>Setup</label>
+                <label>Total Max DD (%)</label>
                 <input
-                  type="text"
-                  value={formData.setup}
-                  onChange={(e) => setFormData({ ...formData, setup: e.target.value })}
-                  placeholder="e.g. 15m S/R, FVG, Sweep"
+                  type="number"
+                  value={mcParams.totalMaxDDPct}
+                  onChange={(e) => setMcParams({ ...mcParams, totalMaxDDPct: parseFloat(e.target.value) || 0 })}
                 />
               </div>
-
               <div className="form-group">
-                <label>Psychology & Mindset</label>
-                <div className="psychology-chips-grid">
-                  {PSYCHOLOGY_OPTIONS.map((opt) => {
-                    const isSelected = (formData.psychology || []).includes(opt.label);
-                    return (
-                      <button
-                        key={opt.label}
-                        type="button"
-                        onClick={() => handleTagToggle(opt.label)}
-                        className={`psych-chip ${opt.type} ${isSelected ? 'active' : ''}`}
-                      >
-                        {isSelected ? '✓ ' : '+ '}
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <label>Daily Max DD (%)</label>
+                <input
+                  type="number"
+                  value={mcParams.dailyMaxDDPct}
+                  onChange={(e) => setMcParams({ ...mcParams, dailyMaxDDPct: parseFloat(e.target.value) || 0 })}
+                />
               </div>
-
-              <div className="form-group mb-4">
-                <label>Mistake tracking <span className="mistake-optional-label">Optional · tag any mistakes from this trade</span></label>
-                <div className="mistake-chip-list">
-                  {MISTAKE_TAGS.map((tag) => {
-                    const isSelected = (formData.mistakes || []).includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        aria-pressed={isSelected}
-                        onClick={() => handleMistakeToggle(tag)}
-                        className={`mistake-chip ${isSelected ? 'selected' : ''}`}
-                      >
-                        {isSelected ? '✓ ' : '+ '}{tag}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Notes</label>
-                <textarea
-                  rows="3"
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="What happened? What did you do well/wrong?"
-                ></textarea>
-              </div>
-
-              <div className="form-group mb-6">
-                <label>Executed Trade TradingView Link</label>
-                <input type="url" value={formData.tradingViewUrl || ''} onChange={(e) => setFormData({ ...formData, tradingViewUrl: e.target.value })} placeholder="https://www.tradingview.com/chart/..." />
-                <small className="panel-sub">Optional link to the chart showing your executed trade.</small>
-                {safeExternalUrl(formData.tradingViewUrl) && <a className="chart-open-link" href={safeExternalUrl(formData.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Open executed chart ↗</a>}
-                {formData.screenshotUrl && <div className="legacy-screenshot-note"><span>Existing saved screenshot</span><button type="button" className="cal-btn" onClick={() => setPreviewImage(formData.screenshotUrl)}>View</button><button type="button" className="cal-btn" onClick={() => setFormData({ ...formData, screenshotUrl: '' })}>Remove</button></div>}
-              </div>
-                </div>
-              </details>
-
-              <button type="submit" className="btn-primary full-width">
-                {formData.id ? 'Update Trade' : 'Save Trade'}
-              </button>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* LIGHTBOX MODAL */}
-      {isTopDownCardModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsTopDownCardModalOpen(false)}>
-          <section className="modal-content top-down-card-modal" role="dialog" aria-modal="true" aria-labelledby="top-down-card-modal-title" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <span className="modal-sub">TOP DOWN ANALYSIS · {currentProfileObj.name}</span>
-                <h2 id="top-down-card-modal-title">{topDownCardForm.id ? 'Edit analysis card' : 'Create analysis card'}</h2>
-              </div>
-              <button type="button" className="close-btn" onClick={() => setIsTopDownCardModalOpen(false)} aria-label="Close analysis card form">✕</button>
+          <div className="mc-setting-card">
+            <h4 className="setting-header">2. Challenge Rules</h4>
+            <div className="form-group mb-2">
+              <label>Pass Structure</label>
+              <select
+                value={mcParams.passStructure}
+                onChange={(e) => setMcParams({ ...mcParams, passStructure: e.target.value })}
+              >
+                <option value="two_step">2-Step Challenge</option>
+                <option value="one_step">1-Step Challenge</option>
+                <option value="three_step">3-Step Challenge</option>
+                <option value="instant">Instant Funding (No Eval)</option>
+              </select>
             </div>
-            <form onSubmit={saveTopDownCard}>
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="analysis-card-date">Date</label>
-                  <input id="analysis-card-date" type="date" required value={topDownCardForm.date || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, date: event.target.value })} />
+            {mcParams.passStructure !== 'instant' && (
+              <>
+                <div className="form-row mb-2">
+                  <div className="form-group">
+                    <label>Phase 1 Target (%)</label>
+                    <input
+                      type="number"
+                      value={mcParams.p1TargetPct}
+                      onChange={(e) => setMcParams({ ...mcParams, p1TargetPct: parseFloat(e.target.value) || 0 })}
+                    />
+                  </div>
+                  {(mcParams.passStructure === 'two_step' || mcParams.passStructure === 'three_step') && (
+                    <div className="form-group">
+                      <label>Phase 2 Target (%)</label>
+                      <input
+                        type="number"
+                        value={mcParams.p2TargetPct}
+                        onChange={(e) => setMcParams({ ...mcParams, p2TargetPct: parseFloat(e.target.value) || 0 })}
+                      />
+                    </div>
+                  )}
                 </div>
-                <div className="form-group">
-                  <label htmlFor="analysis-card-timeframe">Custom timeframe</label>
-                  <input id="analysis-card-timeframe" type="text" required value={topDownCardForm.timeframe || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, timeframe: event.target.value })} placeholder="e.g. Weekly, 4H, 15m" />
+                {mcParams.passStructure === 'three_step' && (
+                  <div className="form-group mb-2">
+                    <label>Phase 3 Target (%)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={mcParams.p3TargetPct}
+                      onChange={(e) => setMcParams({ ...mcParams, p3TargetPct: Math.max(0, parseFloat(e.target.value) || 0) })}
+                    />
+                  </div>
+                )}
+                <div className="form-group mb-2">
+                  <label>Min Trading Days</label>
+                  <input
+                    type="number"
+                    value={mcParams.minTradingDays}
+                    onChange={(e) => setMcParams({ ...mcParams, minTradingDays: parseInt(e.target.value) || 0 })}
+                  />
                 </div>
-              </div>
-              <div className="form-group">
-                <label htmlFor="analysis-card-title">Card title</label>
-                <input id="analysis-card-title" type="text" value={topDownCardForm.title || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, title: event.target.value })} placeholder="e.g. NQ weekly bullish setup" />
-              </div>
-              <div className="form-group">
-                <label>Chart screenshot <span className="mistake-optional-label">Optional · saved in this browser</span></label>
-                {topDownCardForm.imageData && <div className="top-down-form-image"><img src={topDownCardForm.imageData} alt="Analysis card screenshot preview" /><button className="cal-btn" type="button" onClick={() => setTopDownCardForm({ ...topDownCardForm, imageData: '', imageName: '' })}>Remove image</button></div>}
-                <label className="cal-btn top-down-file-picker">＋ {topDownCardForm.imageData ? 'Replace screenshot' : 'Add screenshot'}
-                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleTopDownImageChange} />
-                </label>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="analysis-card-tv-link">TradingView link</label>
-                  <input id="analysis-card-tv-link" type="url" value={topDownCardForm.tradingViewUrl || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, tradingViewUrl: event.target.value })} placeholder="https://www.tradingview.com/chart/..." />
-                  {safeExternalUrl(topDownCardForm.tradingViewUrl) && <a className="chart-open-link" href={safeExternalUrl(topDownCardForm.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Open chart ↗</a>}
+                <div className="form-group mb-2">
+                  <label className="mc-toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={mcParams.evalConsistencyEnabled}
+                      onChange={(e) => setMcParams({ ...mcParams, evalConsistencyEnabled: e.target.checked })}
+                    />
+                    Apply challenge consistency rule
+                  </label>
                 </div>
-                <div className="form-group">
-                  <label htmlFor="analysis-card-reference-link">Other link</label>
-                  <input id="analysis-card-reference-link" type="url" value={topDownCardForm.referenceUrl || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, referenceUrl: event.target.value })} placeholder="Optional reference link" />
-                  {safeExternalUrl(topDownCardForm.referenceUrl) && <a className="chart-open-link" href={safeExternalUrl(topDownCardForm.referenceUrl)} target="_blank" rel="noopener noreferrer">Open reference ↗</a>}
-                </div>
-              </div>
-              <div className="form-group mb-6">
-                <label htmlFor="analysis-card-description">Description and notes</label>
-                <textarea id="analysis-card-description" rows="5" value={topDownCardForm.description || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, description: event.target.value })} placeholder="Describe the market structure, key levels, bias, or what you want to watch." />
-              </div>
-              <div className="top-down-form-actions">
-                <button className="cal-btn" type="button" onClick={() => setIsTopDownCardModalOpen(false)}>Cancel</button>
-                <button className="btn-primary" type="submit">{topDownCardForm.id ? 'Save changes' : 'Create card'}</button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
-
-      {/* LIGHTBOX MODAL */}
-      {selectedTradeDetails && (
-        <div className="modal-overlay" onClick={() => setSelectedTradeDetails(null)}>
-          <section className="modal-content trade-detail-modal" role="dialog" aria-modal="true" aria-labelledby="trade-detail-title" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header trade-detail-header">
-              <div>
-                <span className="text-muted text-xs">{selectedTradeDetails.date} · {selectedTradeDetails.time || 'Time not set'}</span>
-                <h2 id="trade-detail-title"><span className="instrument-badge">{selectedTradeDetails.instrument || 'Trade'}</span> {selectedTradeDetails.direction}</h2>
-                <span className={`trade-detail-result ${Number(selectedTradeDetails.resultR) >= 0 ? 'text-green' : 'text-red'}`}>
-                  {Number(selectedTradeDetails.resultR) > 0 ? '+' : ''}{selectedTradeDetails.resultR || 0}R
-                </span>
-              </div>
-              <button className="close-btn" onClick={() => setSelectedTradeDetails(null)} aria-label="Close trade details">✕</button>
-            </div>
-            <div className="trade-detail-grid">
-              <section className="trade-detail-section">
-                <h3>Pre-trade plan</h3>
-                <dl>
-                  <div><dt>Planned entry</dt><dd>{selectedTradeDetails.plannedEntry || '—'}</dd></div>
-                  <div><dt>Planned stop loss</dt><dd>{selectedTradeDetails.plannedStopLoss || '—'}</dd></div>
-                  <div><dt>Planned take profit</dt><dd>{selectedTradeDetails.plannedTakeProfit || '—'}</dd></div>
-                </dl>
-              </section>
-              <section className="trade-detail-section">
-                <h3>Trade execution</h3>
-                <dl>
-                  <div><dt>Entry</dt><dd>{selectedTradeDetails.entry || '—'}</dd></div>
-                  <div><dt>Stop loss</dt><dd>{selectedTradeDetails.stopLoss || '—'}</dd></div>
-                  <div><dt>Take profit</dt><dd>{selectedTradeDetails.takeProfit || '—'}</dd></div>
-                  <div><dt>Exit</dt><dd>{selectedTradeDetails.exit || '—'}</dd></div>
-                  <div><dt>Risk</dt><dd>{selectedTradeDetails.risk ? `$${selectedTradeDetails.risk}` : '—'}</dd></div>
-                  <div><dt>Setup</dt><dd>{selectedTradeDetails.setup || '—'}</dd></div>
-                </dl>
-              </section>
-              <section className="trade-detail-section">
-                <h3>Execution costs</h3>
-                <dl>
-                  <div><dt>Commission</dt><dd>${(parseFloat(selectedTradeDetails.commissionCost) || 0).toFixed(2)}</dd></div>
-                  <div><dt>Spread</dt><dd>${(parseFloat(selectedTradeDetails.spreadCost) || 0).toFixed(2)}</dd></div>
-                  <div><dt>Total</dt><dd>${getTradeCosts(selectedTradeDetails).toFixed(2)}</dd></div>
-                </dl>
-              </section>
-            </div>
-            {(selectedTradeDetails.psychology?.length > 0 || selectedTradeDetails.mistakes?.length > 0) && (
-              <section className="trade-detail-section trade-detail-tags-section">
-                <h3>Mindset & mistakes</h3>
-                <div className="trade-detail-tags">
-                  {(selectedTradeDetails.psychology || []).map((tag) => <span className="tag-badge" key={`mind-${tag}`}>{tag}</span>)}
-                  {(selectedTradeDetails.mistakes || []).map((tag) => <span className="tag-badge mistake-tag-badge" key={`mistake-${tag}`}>! {tag}</span>)}
-                </div>
-              </section>
+                {mcParams.evalConsistencyEnabled && (
+                  <div className="form-group mb-2">
+                    <label>Max single-day profit (% of phase profit)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={mcParams.evalConsistencyPct}
+                      onChange={(e) => setMcParams({ ...mcParams, evalConsistencyPct: Math.min(100, Math.max(1, parseFloat(e.target.value) || 1)) })}
+                    />
+                    <span className="stat-sub">Largest winning day must be at or below this share of total phase profit.</span>
+                  </div>
+                )}
+              </>
             )}
-            {selectedTradeDetails.notes && <section className="trade-detail-section trade-detail-notes"><h3>Notes</h3><p>{selectedTradeDetails.notes}</p></section>}
-            <div className="trade-detail-footer">
-              <div className="trade-detail-chart-links">
-                {safeExternalUrl(selectedTradeDetails.plannedTradingViewUrl) && <a className="cal-btn" href={safeExternalUrl(selectedTradeDetails.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer">Open plan chart ↗</a>}
-                {safeExternalUrl(selectedTradeDetails.tradingViewUrl) && <a className="cal-btn" href={safeExternalUrl(selectedTradeDetails.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Open trade chart ↗</a>}
-                {selectedTradeDetails.plannedScreenshotUrl && <button className="cal-btn" onClick={() => setPreviewImage(selectedTradeDetails.plannedScreenshotUrl)}>View plan image</button>}
-                {selectedTradeDetails.screenshotUrl && <button className="cal-btn" onClick={() => setPreviewImage(selectedTradeDetails.screenshotUrl)}>View trade image</button>}
-              </div>
-              <button className="btn-primary" onClick={() => { const trade = selectedTradeDetails; setSelectedTradeDetails(null); handleEditTrade(trade); }}>✏️ Edit trade</button>
-            </div>
-          </section>
-        </div>
-      )}
+          </div>
 
-      {/* LIGHTBOX MODAL */}
-      {previewImage && (
-        <div className="modal-overlay" onClick={() => setPreviewImage(null)}>
-          <div className="image-preview-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn float-close" onClick={() => setPreviewImage(null)}>
-              ✕
-            </button>
-            <img src={previewImage} alt="Full resolution chart screenshot" />
+          <div className="mc-setting-card">
+            <h4 className="setting-header">3. Funded & Payout Rules</h4>
+            <div className="form-group mb-2">
+              <label>Funded Profit Target (%) [0 = None]</label>
+              <input
+                type="number"
+                placeholder="0 if no profit target required"
+                value={mcParams.fundedTargetPct}
+                onChange={(e) => setMcParams({ ...mcParams, fundedTargetPct: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="form-group mb-2">
+              <label className="mc-toggle-label">
+                <input
+                  type="checkbox"
+                  checked={mcParams.fundedConsistencyEnabled}
+                  onChange={(e) => setMcParams({ ...mcParams, fundedConsistencyEnabled: e.target.checked })}
+                />
+                Apply funded consistency rule
+              </label>
+            </div>
+            {mcParams.fundedConsistencyEnabled && (
+              <div className="form-group mb-2">
+                <label>Max single-day profit (% of funded profit)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={mcParams.fundedConsistencyPct}
+                  onChange={(e) => setMcParams({ ...mcParams, fundedConsistencyPct: Math.min(100, Math.max(1, parseFloat(e.target.value) || 1)) })}
+                />
+                <span className="stat-sub">Largest winning day must be at or below this share before a payout.</span>
+              </div>
+            )}
+            <div className="form-row mb-2">
+              <div className="form-group">
+                <label>Payout Split (%)</label>
+                <input
+                  type="number"
+                  value={mcParams.payoutSplitPct}
+                  onChange={(e) => setMcParams({ ...mcParams, payoutSplitPct: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Min Days to Payout</label>
+                <input
+                  type="number"
+                  value={mcParams.minDaysToPayout}
+                  onChange={(e) => setMcParams({ ...mcParams, minDaysToPayout: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
           </div>
         </div>
-      )}
+
+        {mcResults && (
+          <>
+            <div className="analytics-section-title">Challenge Odds & Timeline Metrics</div>
+            <div className="stats-grid mb-6">
+              <div className="stat-card border-green-glow">
+                <span className="stat-label">PASS RATE</span>
+                <div className="stat-value text-green">{mcResults.passRate}%</div>
+                <span className="stat-sub">Probability of passing challenge</span>
+              </div>
+
+              <div className="stat-card border-red-glow">
+                <span className="stat-label">BLOWN ACCOUNTS</span>
+                <div className="stat-value text-red">{mcResults.blownCount} / {mcParams.numSimulations}</div>
+                <span className="stat-sub">Accounts breached DD limits</span>
+              </div>
+
+              <div className="stat-card">
+                <span className="stat-label">AVG DAYS TO PASS</span>
+                <div className="stat-value text-white">{mcResults.avgDaysToPass} Days</div>
+                <span className="stat-sub">Evaluation duration</span>
+              </div>
+
+              <div className="stat-card">
+                <span className="stat-label">DAYS TO FIRST PAYOUT</span>
+                <div className="stat-value text-green">{mcResults.avgDaysToPayout} Days</div>
+                <span className="stat-sub">From day 1 to first check</span>
+              </div>
+            </div>
+
+            <div className="analytics-section-title">Average Net Profit by Time Horizon</div>
+            <p className="panel-sub mb-4">Average realized payouts minus the account fee, across all simulations.</p>
+            <div className="mc-timeframe-grid">
+              {mcResults.timeframeSummary.map((timeframe) => (
+                <div className="stat-card" key={timeframe.label}>
+                  <span className="stat-label">{timeframe.label}</span>
+                  <div className={`stat-value ${timeframe.avgNetProfit >= 0 ? 'text-green' : 'text-red'}`}>
+                    {timeframe.avgNetProfit < 0 ? '-$' : '$'}{Math.abs(timeframe.avgNetProfit).toLocaleString()}
+                  </div>
+                  <span className="stat-sub">Avg payouts: ${timeframe.avgPayout.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    )}
+  </main>
+
+  {/* DAILY CALENDAR DETAILS */}
+  {selectedDayTrades && (
+    <div className="modal-overlay" onClick={() => setSelectedDayTrades(null)}>
+      <div className="modal-content calendar-day-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <span className="modal-sub">DAILY TRADES · {currentProfileObj.name}</span>
+            <h2>
+              {new Date(`${selectedDayTrades.dateStr}T00:00:00`).toLocaleDateString(undefined, {
+                weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+              })}
+            </h2>
+          </div>
+          <button className="close-btn" onClick={() => setSelectedDayTrades(null)} aria-label="Close daily trades">
+            ✕
+          </button>
+        </div>
+
+        {selectedDayTradeList.length > 0 ? (
+          <div className="trades-list mb-6">
+            {selectedDayTradeList.map((trade) => (
+              <div className="trade-row calendar-trade-row" key={trade.id}>
+                <span className="instrument-badge">{trade.instrument}</span>
+                <div className="trade-info">
+                  <div className="trade-title">{trade.direction} · {trade.setup || 'Trade entry'}</div>
+                  <div className="trade-meta">{trade.time || 'Time not set'}{trade.notes ? ` · ${trade.notes}` : ''}</div>
+                </div>
+                <span className={`trade-result ${trade.resultR >= 0 ? 'text-green' : 'text-red'}`}>
+                  {trade.resultR >= 0 ? '+' : ''}{Number(trade.resultR || 0).toFixed(1)}R
+                </span>
+                <div className="trade-actions calendar-trade-actions">
+                  <button className="action-btn icon-btn" onClick={() => setSelectedTradeDetails(trade)} aria-label={`View ${trade.instrument} trade details`} title="View trade details">
+                    👁️
+                  </button>
+                  <button className="action-btn" onClick={() => handleEditTrade(trade)} aria-label={`Edit ${trade.instrument} trade`} title="Edit trade">
+                    ✏️
+                  </button>
+                  <button className="action-btn" onClick={() => handleDeleteTrade(trade.id)} aria-label={`Delete ${trade.instrument} trade`} title="Delete trade">
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="panel-sub mb-6">No trades logged for this date.</p>
+        )}
+
+        <button className="btn-primary" onClick={() => handleAddTradeOnDate(selectedDayTrades.dateStr)}>
+          + Add trade for this date
+        </button>
+      </div>
     </div>
-  );
+  )}
+
+  {/* MANAGE PROFILES MODAL */}
+  {isProfileModalOpen && (
+    <div className="modal-overlay" onClick={() => setIsProfileModalOpen(false)}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <span className="modal-sub">PROFILE MANAGEMENT</span>
+            <h2>Journal Profiles</h2>
+          </div>
+          <button className="close-btn" onClick={() => setIsProfileModalOpen(false)}>
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleCreateProfile} className="modal-form mb-6">
+          <div className="form-group">
+            <label>Create New Journal Profile</label>
+            <div className="form-row">
+              <input
+                type="text"
+                placeholder="e.g. 50K Prop Evaluation, Crypto Scalping..."
+                value={newProfileName}
+                onChange={(e) => setNewProfileName(e.target.value)}
+                required
+              />
+              <button type="submit" className="btn-primary">
+                + Create
+              </button>
+            </div>
+          </div>
+        </form>
+
+        <div className="analytics-section-title">Existing Profiles</div>
+        <div className="trades-list">
+          {profiles.map((p) => (
+            <div key={p.id} className="trade-row">
+              <div className="trade-info">
+                <div className="trade-title">{p.name}</div>
+                <div className="trade-meta">
+                  {p.id === activeProfileId ? '(Currently Active)' : ''}
+                </div>
+              </div>
+              {p.id !== activeProfileId && (
+                <button
+                  className="cal-btn mr-2"
+                  onClick={() => switchActiveProfile(p.id)}
+                >
+                  Switch
+                </button>
+              )}
+              {profiles.length > 1 && (
+                <button
+                  className="action-btn delete-btn"
+                  onClick={() => handleDeleteProfile(p.id)}
+                  title="Delete profile"
+                >
+                  🗑️
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )}
+
+  {/* ADD / EDIT TRADE MODAL */}
+  {isModalOpen && (
+    <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <span className="modal-sub">{formData.id ? 'EDIT ENTRY' : 'NEW ENTRY'} · {currentProfileObj.name}</span>
+            <h2>{formData.id ? 'Edit trade' : 'Add trade'}</h2>
+          </div>
+          <button className="close-btn" onClick={() => setIsModalOpen(false)}>
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="modal-form">
+          <div className="form-row">
+            <div className="form-group">
+              <label>Date</label>
+              <input
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Time</label>
+              <input
+                type="time"
+                value={formData.time}
+                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Instrument</label>
+              <div className="instrument-field-control">
+                <input
+                  type="text"
+                  value={formData.instrument}
+                  onChange={(e) => setFormData({ ...formData, instrument: e.target.value })}
+                  placeholder="e.g. NQ, GC, BTC"
+                  required
+                />
+                <details className="instrument-picker">
+                  <summary aria-label="Expand quick-pick instruments" title="Quick-pick instruments" />
+                  <div className="instrument-picker-menu">
+                    <div className="instrument-picker-heading">Quick-pick instruments <span>20 assets · Selected: {formData.instrument || 'Custom'}</span></div>
+                    {INSTRUMENT_PRESETS.map((group) => (
+                      <div className="instrument-picker-group" key={group.category}>
+                        <span className="instrument-group-label">{group.category}</span>
+                        <div className="instrument-chip-list">
+                          {group.assets.map((asset) => (
+                            <button
+                              type="button"
+                              key={asset}
+                              className={`instrument-chip ${formData.instrument === asset ? 'selected' : ''}`}
+                              aria-pressed={formData.instrument === asset}
+                              onClick={() => setFormData({ ...formData, instrument: asset })}
+                            >
+                              {asset}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Direction</label>
+              <select
+                value={formData.direction}
+                onChange={(e) => setFormData({ ...formData, direction: e.target.value })}
+              >
+                <option value="Long">Long</option>
+                <option value="Short">Short</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="entry-mode-picker" role="group" aria-label="Trade entry mode">
+            <button type="button" className={`entry-mode-option ${tradeEntryMode === 'standard' ? 'selected' : ''}`} aria-pressed={tradeEntryMode === 'standard'} onClick={() => setTradeEntryMode('standard')}>
+              <strong>Trade details</strong>
+              <span>Log the trade as usual</span>
+            </button>
+            <button type="button" className={`entry-mode-option ${tradeEntryMode === 'compare' ? 'selected' : ''}`} aria-pressed={tradeEntryMode === 'compare'} onClick={() => setTradeEntryMode('compare')}>
+              <strong>Pre-trade plan vs actual</strong>
+              <span>Record your plan and compare execution</span>
+            </button>
+          </div>
+
+          {tradeEntryMode === 'compare' && (
+            <details className="pretrade-plan-details">
+              <summary>Pre-Trade Plan <span>Optional · enter what you planned before the trade</span></summary>
+              <div className="pretrade-plan-fields">
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Planned Entry</label>
+                    <input type="number" step="any" value={formData.plannedEntry || ''} onChange={(e) => setFormData({ ...formData, plannedEntry: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label>Planned Stop Loss</label>
+                    <input type="number" step="any" value={formData.plannedStopLoss || ''} onChange={(e) => setFormData({ ...formData, plannedStopLoss: e.target.value })} />
+                  </div>
+                </div>
+                <div className="form-group mb-4">
+                  <label>Planned Take Profit</label>
+                  <input type="number" step="any" value={formData.plannedTakeProfit || ''} onChange={(e) => setFormData({ ...formData, plannedTakeProfit: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Pre-Trade TradingView Link</label>
+                  <input type="url" value={formData.plannedTradingViewUrl || ''} onChange={(e) => setFormData({ ...formData, plannedTradingViewUrl: e.target.value })} placeholder="https://www.tradingview.com/chart/..." />
+                  <small className="panel-sub">Paste a shareable TradingView chart link for your plan.</small>
+                  {safeExternalUrl(formData.plannedTradingViewUrl) && <a className="chart-open-link" href={safeExternalUrl(formData.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer">Open planned chart ↗</a>}
+                  {formData.plannedScreenshotUrl && <div className="legacy-screenshot-note"><span>Existing saved screenshot</span><button type="button" className="cal-btn" onClick={() => setPreviewImage(formData.plannedScreenshotUrl)}>View</button><button type="button" className="cal-btn" onClick={() => setFormData({ ...formData, plannedScreenshotUrl: '' })}>Remove</button></div>}
+                </div>
+              </div>
+            </details>
+          )}
+
+          <details className="pretrade-plan-details actual-trade-details" open>
+            <summary>{tradeEntryMode === 'compare' ? 'Actual Trade Details' : 'Trade Details'} <span>Entry, exit, risk, results and notes</span></summary>
+            <div className="pretrade-plan-fields">
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Entry</label>
+              <input
+                type="number"
+                step="any"
+                value={formData.entry}
+                onChange={(e) => setFormData({ ...formData, entry: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Stop Loss</label>
+              <input
+                type="number"
+                step="any"
+                value={formData.stopLoss}
+                onChange={(e) => setFormData({ ...formData, stopLoss: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Take Profit</label>
+              <input
+                type="number"
+                step="any"
+                value={formData.takeProfit}
+                onChange={(e) => setFormData({ ...formData, takeProfit: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Exit</label>
+              <input
+                type="number"
+                step="any"
+                value={formData.exit}
+                onChange={(e) => setFormData({ ...formData, exit: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Risk ($)</label>
+              <input
+                type="number"
+                value={formData.risk}
+                onChange={(e) => setFormData({ ...formData, risk: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Result (R)</label>
+              <input
+                type="text"
+                value={formData.resultR}
+                onChange={(e) => setFormData({ ...formData, resultR: e.target.value })}
+                placeholder="Auto-calculated or e.g. 2.8"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form-row trade-cost-inputs">
+            <div className="form-group">
+              <label>Commission cost ($ / trade)</label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={formData.commissionCost || ''}
+                onChange={(e) => setFormData({ ...formData, commissionCost: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+            <div className="form-group">
+              <label>Spread cost ($ / trade)</label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={formData.spreadCost || ''}
+                onChange={(e) => setFormData({ ...formData, spreadCost: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <div className="trade-cost-total">Combined execution cost <strong>${((parseFloat(formData.commissionCost) || 0) + (parseFloat(formData.spreadCost) || 0)).toFixed(2)}</strong> per trade</div>
+
+          <div className="form-group">
+            <label>Setup</label>
+            <input
+              type="text"
+              value={formData.setup}
+              onChange={(e) => setFormData({ ...formData, setup: e.target.value })}
+              placeholder="e.g. 15m S/R, FVG, Sweep"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Psychology & Mindset</label>
+            <div className="psychology-chips-grid">
+              {PSYCHOLOGY_OPTIONS.map((opt) => {
+                const isSelected = (formData.psychology || []).includes(opt.label);
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => handleTagToggle(opt.label)}
+                    className={`psych-chip ${opt.type} ${isSelected ? 'active' : ''}`}
+                  >
+                    {isSelected ? '✓ ' : '+ '}
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="form-group mb-4">
+            <label>Mistake tracking <span className="mistake-optional-label">Optional · tag any mistakes from this trade</span></label>
+            <div className="mistake-chip-list">
+              {MISTAKE_TAGS.map((tag) => {
+                const isSelected = (formData.mistakes || []).includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => handleMistakeToggle(tag)}
+                    className={`mistake-chip ${isSelected ? 'selected' : ''}`}
+                  >
+                    {isSelected ? '✓ ' : '+ '}{tag}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Notes</label>
+            <textarea
+              rows="3"
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              placeholder="What happened? What did you do well/wrong?"
+            ></textarea>
+          </div>
+
+          <div className="form-group mb-6">
+            <label>Executed Trade TradingView Link</label>
+            <input type="url" value={formData.tradingViewUrl || ''} onChange={(e) => setFormData({ ...formData, tradingViewUrl: e.target.value })} placeholder="https://www.tradingview.com/chart/..." />
+            <small className="panel-sub">Optional link to the chart showing your executed trade.</small>
+            {safeExternalUrl(formData.tradingViewUrl) && <a className="chart-open-link" href={safeExternalUrl(formData.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Open executed chart ↗</a>}
+            {formData.screenshotUrl && <div className="legacy-screenshot-note"><span>Existing saved screenshot</span><button type="button" className="cal-btn" onClick={() => setPreviewImage(formData.screenshotUrl)}>View</button><button type="button" className="cal-btn" onClick={() => setFormData({ ...formData, screenshotUrl: '' })}>Remove</button></div>}
+          </div>
+            </div>
+          </details>
+
+          <button type="submit" className="btn-primary full-width">
+            {formData.id ? 'Update Trade' : 'Save Trade'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )}
+
+  {/* LIGHTBOX MODAL */}
+  {isTopDownCardModalOpen && (
+    <div className="modal-overlay" onClick={() => setIsTopDownCardModalOpen(false)}>
+      <section className="modal-content top-down-card-modal" role="dialog" aria-modal="true" aria-labelledby="top-down-card-modal-title" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <span className="modal-sub">TOP DOWN ANALYSIS · {currentProfileObj.name}</span>
+            <h2 id="top-down-card-modal-title">{topDownCardForm.id ? 'Edit analysis card' : 'Create analysis card'}</h2>
+          </div>
+          <button type="button" className="close-btn" onClick={() => setIsTopDownCardModalOpen(false)} aria-label="Close analysis card form">✕</button>
+        </div>
+        <form onSubmit={saveTopDownCard}>
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="analysis-card-date">Date</label>
+              <input id="analysis-card-date" type="date" required value={topDownCardForm.date || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, date: event.target.value })} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="analysis-card-timeframe">Custom timeframe</label>
+              <input id="analysis-card-timeframe" type="text" required value={topDownCardForm.timeframe || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, timeframe: event.target.value })} placeholder="e.g. Weekly, 4H, 15m" />
+            </div>
+          </div>
+          <div className="form-group">
+            <label htmlFor="analysis-card-title">Card title</label>
+            <input id="analysis-card-title" type="text" value={topDownCardForm.title || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, title: event.target.value })} placeholder="e.g. NQ weekly bullish setup" />
+          </div>
+          <div className="form-group">
+            <label>Chart screenshot <span className="mistake-optional-label">Optional · saved in this browser</span></label>
+            {topDownCardForm.imageData && <div className="top-down-form-image"><img src={topDownCardForm.imageData} alt="Analysis card screenshot preview" /><button className="cal-btn" type="button" onClick={() => setTopDownCardForm({ ...topDownCardForm, imageData: '', imageName: '' })}>Remove image</button></div>}
+            <label className="cal-btn top-down-file-picker">＋ {topDownCardForm.imageData ? 'Replace screenshot' : 'Add screenshot'}
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleTopDownImageChange} />
+            </label>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="analysis-card-tv-link">TradingView link</label>
+              <input id="analysis-card-tv-link" type="url" value={topDownCardForm.tradingViewUrl || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, tradingViewUrl: event.target.value })} placeholder="https://www.tradingview.com/chart/..." />
+              {safeExternalUrl(topDownCardForm.tradingViewUrl) && <a className="chart-open-link" href={safeExternalUrl(topDownCardForm.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Open chart ↗</a>}
+            </div>
+            <div className="form-group">
+              <label htmlFor="analysis-card-reference-link">Other link</label>
+              <input id="analysis-card-reference-link" type="url" value={topDownCardForm.referenceUrl || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, referenceUrl: event.target.value })} placeholder="Optional reference link" />
+              {safeExternalUrl(topDownCardForm.referenceUrl) && <a className="chart-open-link" href={safeExternalUrl(topDownCardForm.referenceUrl)} target="_blank" rel="noopener noreferrer">Open reference ↗</a>}
+            </div>
+          </div>
+          <div className="form-group mb-6">
+            <label htmlFor="analysis-card-description">Description and notes</label>
+            <textarea id="analysis-card-description" rows="5" value={topDownCardForm.description || ''} onChange={(event) => setTopDownCardForm({ ...topDownCardForm, description: event.target.value })} placeholder="Describe the market structure, key levels, bias, or what you want to watch." />
+          </div>
+          <div className="top-down-form-actions">
+            <button className="cal-btn" type="button" onClick={() => setIsTopDownCardModalOpen(false)}>Cancel</button>
+            <button className="btn-primary" type="submit">{topDownCardForm.id ? 'Save changes' : 'Create card'}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )}
+
+  {/* LIGHTBOX MODAL */}
+  {selectedTradeDetails && (
+    <div className="modal-overlay" onClick={() => setSelectedTradeDetails(null)}>
+      <section className="modal-content trade-detail-modal" role="dialog" aria-modal="true" aria-labelledby="trade-detail-title" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header trade-detail-header">
+          <div>
+            <span className="text-muted text-xs">{selectedTradeDetails.date} · {selectedTradeDetails.time || 'Time not set'}</span>
+            <h2 id="trade-detail-title"><span className="instrument-badge">{selectedTradeDetails.instrument || 'Trade'}</span> {selectedTradeDetails.direction}</h2>
+            <span className={`trade-detail-result ${Number(selectedTradeDetails.resultR) >= 0 ? 'text-green' : 'text-red'}`}>
+              {Number(selectedTradeDetails.resultR) > 0 ? '+' : ''}{selectedTradeDetails.resultR || 0}R
+            </span>
+          </div>
+          <button className="close-btn" onClick={() => setSelectedTradeDetails(null)} aria-label="Close trade details">✕</button>
+        </div>
+        <div className="trade-detail-grid">
+          <section className="trade-detail-section">
+            <h3>Pre-trade plan</h3>
+            <dl>
+              <div><dt>Planned entry</dt><dd>{selectedTradeDetails.plannedEntry || '—'}</dd></div>
+              <div><dt>Planned stop loss</dt><dd>{selectedTradeDetails.plannedStopLoss || '—'}</dd></div>
+              <div><dt>Planned take profit</dt><dd>{selectedTradeDetails.plannedTakeProfit || '—'}</dd></div>
+            </dl>
+          </section>
+          <section className="trade-detail-section">
+            <h3>Trade execution</h3>
+            <dl>
+              <div><dt>Entry</dt><dd>{selectedTradeDetails.entry || '—'}</dd></div>
+              <div><dt>Stop loss</dt><dd>{selectedTradeDetails.stopLoss || '—'}</dd></div>
+              <div><dt>Take profit</dt><dd>{selectedTradeDetails.takeProfit || '—'}</dd></div>
+              <div><dt>Exit</dt><dd>{selectedTradeDetails.exit || '—'}</dd></div>
+              <div><dt>Risk</dt><dd>{selectedTradeDetails.risk ? `$${selectedTradeDetails.risk}` : '—'}</dd></div>
+              <div><dt>Setup</dt><dd>{selectedTradeDetails.setup || '—'}</dd></div>
+            </dl>
+          </section>
+          <section className="trade-detail-section">
+            <h3>Execution costs</h3>
+            <dl>
+              <div><dt>Commission</dt><dd>${(parseFloat(selectedTradeDetails.commissionCost) || 0).toFixed(2)}</dd></div>
+              <div><dt>Spread</dt><dd>${(parseFloat(selectedTradeDetails.spreadCost) || 0).toFixed(2)}</dd></div>
+              <div><dt>Total</dt><dd>${getTradeCosts(selectedTradeDetails).toFixed(2)}</dd></div>
+            </dl>
+          </section>
+        </div>
+        {(selectedTradeDetails.psychology?.length > 0 || selectedTradeDetails.mistakes?.length > 0) && (
+          <section className="trade-detail-section trade-detail-tags-section">
+            <h3>Mindset & mistakes</h3>
+            <div className="trade-detail-tags">
+              {(selectedTradeDetails.psychology || []).map((tag) => <span className="tag-badge" key={`mind-${tag}`}>{tag}</span>)}
+              {(selectedTradeDetails.mistakes || []).map((tag) => <span className="tag-badge mistake-tag-badge" key={`mistake-${tag}`}>! {tag}</span>)}
+            </div>
+          </section>
+        )}
+        {selectedTradeDetails.notes && <section className="trade-detail-section trade-detail-notes"><h3>Notes</h3><p>{selectedTradeDetails.notes}</p></section>}
+        <div className="trade-detail-footer">
+          <div className="trade-detail-chart-links">
+            {safeExternalUrl(selectedTradeDetails.plannedTradingViewUrl) && <a className="cal-btn" href={safeExternalUrl(selectedTradeDetails.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer">Open plan chart ↗</a>}
+            {safeExternalUrl(selectedTradeDetails.tradingViewUrl) && <a className="cal-btn" href={safeExternalUrl(selectedTradeDetails.tradingViewUrl)} target="_blank" rel="noopener noreferrer">Open trade chart ↗</a>}
+            {selectedTradeDetails.plannedScreenshotUrl && <button className="cal-btn" onClick={() => setPreviewImage(selectedTradeDetails.plannedScreenshotUrl)}>View plan image</button>}
+            {selectedTradeDetails.screenshotUrl && <button className="cal-btn" onClick={() => setPreviewImage(selectedTradeDetails.screenshotUrl)}>View trade image</button>}
+          </div>
+          <button className="btn-primary" onClick={() => { const trade = selectedTradeDetails; setSelectedTradeDetails(null); handleEditTrade(trade); }}>✏️ Edit trade</button>
+        </div>
+      </section>
+    </div>
+  )}
+
+  {/* LIGHTBOX MODAL */}
+  {previewImage && (
+    <div className="modal-overlay" onClick={() => setPreviewImage(null)}>
+      <div className="image-preview-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="close-btn float-close" onClick={() => setPreviewImage(null)}>
+          ✕
+        </button>
+        <img src={previewImage} alt="Full resolution chart screenshot" />
+      </div>
+    </div>
+  )}
+</div>
+
+
+);
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+<React.StrictMode>
+
+</React.StrictMode>
 );
