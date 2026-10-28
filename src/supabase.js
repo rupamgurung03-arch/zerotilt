@@ -1,37 +1,47 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = 'https://reycvzqoeerdiykruqkk.supabase.co'
-const supabaseAnonKey = 'PASTE_YOUR_COPIED_ANON_KEY_HERE' // Replace with your anon public key
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://reycvzqoeerdiykruqkk.supabase.co'
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl && supabaseAnonKey && !supabaseAnonKey.includes('PASTE_YOUR_COPIED')
+)
+
+// The anon/publishable key is safe for frontend use when RLS is enabled.
+// Never put a service_role or secret key in this browser client.
+export const supabase = createClient(supabaseUrl, supabaseAnonKey || 'missing-public-anon-key')
+
+const missingConfigError = () => new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the app build environment.')
 
 // Sign in with Google
 export async function signInWithGoogle() {
-  const { error } = await supabase.auth.signInWithOAuth({
+  if (!isSupabaseConfigured) return { error: missingConfigError() }
+  return supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: 'https://zerotilt.rupamgurung03.workers.dev'
+      redirectTo: window.location.origin,
     }
   })
-  if (error) alert(error.message)
 }
 
 // Email Sign Up
 export async function signUpWithEmail(email, password) {
-  const { data, error } = await supabase.auth.signUp({ email, password })
-  if (error) alert(error.message)
-  return { data, error }
+  if (!isSupabaseConfigured) return { data: null, error: missingConfigError() }
+  return supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: window.location.origin },
+  })
 }
 
 // Email Sign In
 export async function signInWithEmail(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error) alert(error.message)
-  return { data, error }
+  if (!isSupabaseConfigured) return { data: null, error: missingConfigError() }
+  return supabase.auth.signInWithPassword({ email, password })
 }
 
 // Sign Out
 export async function signOut() {
-  const { error } = await supabase.auth.signOut()
-  if (error) alert(error.message)
+  if (!isSupabaseConfigured) return { error: missingConfigError() }
+  return supabase.auth.signOut()
 }

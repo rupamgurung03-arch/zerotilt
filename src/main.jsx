@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { supabase, signInWithGoogle, signOut } from './supabase';
+import { supabase, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut, isSupabaseConfigured } from './supabase';
 import './styles.css';
 
 const PSYCHOLOGY_OPTIONS = [
@@ -118,6 +118,90 @@ function safeExternalUrl(value) {
   }
 }
 
+const TRADE_META_MARKER = '[[TRADING_JOURNAL_META_V1:';
+const isDatabaseUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+
+function splitStoredTradeNotes(value = '') {
+  const markerIndex = value.lastIndexOf(TRADE_META_MARKER);
+  if (markerIndex < 0) return { notes: value, metadata: null };
+  const endIndex = value.indexOf(']]', markerIndex);
+  if (endIndex < 0) return { notes: value, metadata: null };
+  try {
+    const encoded = value.slice(markerIndex + TRADE_META_MARKER.length, endIndex);
+    return { notes: value.slice(0, markerIndex).trimEnd(), metadata: JSON.parse(decodeURIComponent(encoded)) };
+  } catch {
+    return { notes: value, metadata: null };
+  }
+}
+
+function journalTradeToDatabaseRow(trade, userId, profileId) {
+  const fullTrade = { ...trade };
+  delete fullTrade.id;
+  delete fullTrade.notes;
+  delete fullTrade._localTradeId;
+  delete fullTrade._profileId;
+  ['screenshotUrl', 'plannedScreenshotUrl'].forEach((field) => {
+    if (String(fullTrade[field] || '').startsWith('data:')) fullTrade[field] = '';
+  });
+  const metadata = {
+    trade: fullTrade,
+    localTradeId: String(trade._localTradeId || trade.id || ''),
+    profileId,
+  };
+  const noteText = String(trade.notes || '').trimEnd();
+  const notes = `${noteText}${noteText ? '\n\n' : ''}${TRADE_META_MARKER}${encodeURIComponent(JSON.stringify(metadata))}]]`;
+  const parseNumeric = (value) => {
+    const number = Number.parseFloat(value);
+    return Number.isFinite(number) ? number : null;
+  };
+  const risk = parseNumeric(trade.risk);
+  const resultR = parseNumeric(trade.resultR);
+  const executionCosts = (parseNumeric(trade.commissionCost) || 0) + (parseNumeric(trade.spreadCost) || 0);
+  const pnl = risk === null || resultR === null ? null : (risk * resultR) - executionCosts;
+  const tradeDate = trade.date && trade.time
+    ? new Date(`${trade.date}T${trade.time.length === 5 ? `${trade.time}:00` : trade.time}`)
+    : trade.date ? new Date(`${trade.date}T12:00:00`) : new Date();
+  const row = {
+    user_id: userId,
+    symbol: String(trade.instrument || 'Unknown'),
+    trade_type: trade.direction === 'Short' ? 'SELL' : 'BUY',
+    entry_price: parseNumeric(trade.entry),
+    exit_price: parseNumeric(trade.exit),
+    pnl,
+    notes,
+    created_at: Number.isNaN(tradeDate.getTime()) ? new Date().toISOString() : tradeDate.toISOString(),
+  };
+  if (isDatabaseUuid(trade.id)) row.id = trade.id;
+  return row;
+}
+
+function databaseRowToJournalTrade(row) {
+  const { notes, metadata } = splitStoredTradeNotes(row.notes || '');
+  const trade = metadata?.trade || {};
+  const createdAt = row.created_at ? new Date(row.created_at) : new Date();
+  const date = !Number.isNaN(createdAt.getTime()) ? getLocalDateString(createdAt) : getLocalDateString();
+  const time = !Number.isNaN(createdAt.getTime())
+    ? `${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`
+    : '';
+  const parsedPnl = Number.parseFloat(row.pnl);
+  const parsedRisk = Number.parseFloat(trade.risk);
+  const derivedR = Number.isFinite(parsedPnl) && Number.isFinite(parsedRisk) && parsedRisk > 0 ? (parsedPnl / parsedRisk).toFixed(1) : 0;
+  return {
+    ...trade,
+    id: row.id,
+    _localTradeId: metadata?.localTradeId || row.id,
+    _profileId: metadata?.profileId || 'default',
+    date: trade.date || date,
+    time: trade.time || time,
+    instrument: row.symbol || trade.instrument || '',
+    direction: row.trade_type === 'SELL' ? 'Short' : row.trade_type === 'BUY' ? 'Long' : (trade.direction || 'Long'),
+    entry: row.entry_price ?? trade.entry ?? '',
+    exit: row.exit_price ?? trade.exit ?? '',
+    resultR: trade.resultR ?? derivedR,
+    notes,
+  };
+}
+
 function compressAnalysisImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -189,17 +273,54 @@ function normalizeTopDownData(data) {
 function App() {
   // --- Supabase Authentication State ---
   const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('signin');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
+  const [cloudSyncReady, setCloudSyncReady] = useState(false);
+  const [cloudSyncState, setCloudSyncState] = useState('local');
+  const [cloudSyncMessage, setCloudSyncMessage] = useState('');
+  const [pendingLocalTrades, setPendingLocalTrades] = useState([]);
+  const [cloudImportBusy, setCloudImportBusy] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+    if (!isSupabaseConfigured) {
+      setAuthLoading(false);
+      return undefined;
+    }
+
+    let isMounted = true;
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!isMounted) return;
+      if (error) setAuthError(error.message || 'Could not restore your sign-in session.');
+      setSession(data?.session || null);
+      setAuthLoading(false);
+    }).catch(() => {
+      if (isMounted) {
+        setAuthError('Could not connect to Supabase. Check your project URL and public key.');
+        setAuthLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
       setSession(session);
+      setAuthLoading(false);
+      if (session) {
+        setIsAuthModalOpen(false);
+        setAuthPassword('');
+        setAuthError('');
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // --- Profile State Management ---
@@ -290,6 +411,10 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem('tradelog_active_profile', activeProfileId);
+    if (session?.user?.id) {
+      setTradesProfileId(activeProfileId);
+      return;
+    }
     const saved = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
     if (saved) {
       setTrades(JSON.parse(saved));
@@ -299,12 +424,78 @@ function App() {
       setTrades([]);
     }
     setTradesProfileId(activeProfileId);
-  }, [activeProfileId]);
+  }, [activeProfileId, session?.user?.id]);
 
   // Save trades specific to current profile
   useEffect(() => {
+    if (tradesProfileId !== activeProfileId) return;
     localStorage.setItem(`tradelog_trades_${activeProfileId}`, JSON.stringify(trades));
-  }, [trades, activeProfileId]);
+  }, [trades, activeProfileId, tradesProfileId]);
+
+  // Load and merge this profile's rows through the signed-in user's RLS policies.
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setCloudSyncReady(false);
+      setCloudSyncState('local');
+      setCloudSyncMessage('');
+      setPendingLocalTrades([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const loadCloudTrades = async () => {
+      setCloudSyncReady(false);
+      setCloudSyncState('loading');
+      setCloudSyncMessage('Loading cloud trades…');
+      setPendingLocalTrades([]);
+      try {
+        const localText = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
+        const localBackupKey = `tradelog_trades_local_backup_${userId}_${activeProfileId}`;
+        const currentLocalTrades = localText ? JSON.parse(localText) : (activeProfileId === 'default' ? INITIAL_TRADES : []);
+        const backupLocalTrades = JSON.parse(localStorage.getItem(localBackupKey) || '[]');
+        const localById = new Map();
+        [...(Array.isArray(currentLocalTrades) ? currentLocalTrades : []), ...(Array.isArray(backupLocalTrades) ? backupLocalTrades : [])]
+          .forEach((trade) => localById.set(String(trade._localTradeId || trade.id), trade));
+        const localTrades = [...localById.values()];
+
+        const { data, error } = await supabase
+          .from('trades')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        if (cancelled) return;
+
+        const allUserTrades = (data || []).map(databaseRowToJournalTrade);
+        const cloudTrades = allUserTrades.filter((trade) => trade._profileId === activeProfileId);
+        const cloudLocalIds = new Set(cloudTrades.map((trade) => String(trade._localTradeId || trade.id)));
+        const localOnlyTrades = localTrades.filter((trade) => !cloudLocalIds.has(String(trade._localTradeId || trade.id)));
+        if (cancelled) return;
+        if (cloudTrades.length && localOnlyTrades.length) {
+          localStorage.setItem(localBackupKey, JSON.stringify(localOnlyTrades));
+          setTrades(cloudTrades);
+        } else {
+          setTrades(localTrades);
+        }
+        setPendingLocalTrades(localOnlyTrades);
+        setTradesProfileId(activeProfileId);
+        setCloudSyncReady(true);
+        setCloudSyncState('ready');
+        setCloudSyncMessage(cloudTrades.length
+          ? `${cloudTrades.length} cloud trade${cloudTrades.length === 1 ? '' : 's'} loaded for ${currentProfileObj.name}.${localOnlyTrades.length ? ` ${localOnlyTrades.length} browser-only trades are ready to import.` : ''}`
+          : `No cloud trades found for ${currentProfileObj.name}.${localOnlyTrades.length ? ` ${localOnlyTrades.length} browser-only trades are ready to import.` : ''}`);
+      } catch (error) {
+        if (cancelled) return;
+        setCloudSyncReady(false);
+        setCloudSyncState('error');
+        setCloudSyncMessage(error?.message || 'Could not load trades from Supabase. Check the trades table and its RLS policies.');
+      }
+    };
+
+    loadCloudTrades();
+    return () => { cancelled = true; };
+  }, [session?.user?.id, activeProfileId]);
 
   useEffect(() => {
     try {
@@ -812,6 +1003,118 @@ function App() {
     });
   };
 
+  const showAuthError = (error) => {
+    const message = error?.message || 'We could not complete that request. Please try again.';
+    const normalized = message.toLowerCase();
+    if (normalized.includes('invalid login credentials')) {
+      setAuthError('That email and password do not match. Check them and try again.');
+    } else if (normalized.includes('email not confirmed')) {
+      setAuthError('Please confirm your email from the link we sent before signing in.');
+    } else if (normalized.includes('password') && (normalized.includes('short') || normalized.includes('least'))) {
+      setAuthError('Choose a longer password that meets your Supabase password rules.');
+    } else if (normalized.includes('already registered')) {
+      setAuthError('An account may already exist for that email. Try signing in instead.');
+    } else {
+      setAuthError(message);
+    }
+    setAuthNotice('');
+  };
+
+  const openAuthModal = (mode = 'signin') => {
+    setAuthMode(mode);
+    setAuthError('');
+    setAuthNotice('');
+    setIsAuthModalOpen(true);
+  };
+
+  const handleAuthSubmit = async (event) => {
+    event.preventDefault();
+    if (authBusy) return;
+    setAuthBusy(true);
+    setAuthError('');
+    setAuthNotice('');
+    try {
+      if (authMode === 'signup') {
+        const { data, error } = await signUpWithEmail(authEmail.trim(), authPassword);
+        if (error) {
+          showAuthError(error);
+        } else if (data?.session) {
+          setSession(data.session);
+          setIsAuthModalOpen(false);
+          setAuthPassword('');
+        } else {
+          setAuthNotice('Account created. Check your email for the confirmation link, then sign in.');
+          setAuthPassword('');
+        }
+      } else {
+        const { data, error } = await signInWithEmail(authEmail.trim(), authPassword);
+        if (error) {
+          showAuthError(error);
+        } else {
+          setSession(data?.session || null);
+          setIsAuthModalOpen(false);
+          setAuthPassword('');
+        }
+      }
+    } catch (error) {
+      showAuthError(error);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setAuthError('');
+    setAuthNotice('');
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        showAuthError(error);
+        setIsAuthModalOpen(true);
+      }
+    } catch (error) {
+      showAuthError(error);
+      setIsAuthModalOpen(true);
+    }
+  };
+
+  const handleAuthSignOut = async () => {
+    const { error } = await signOut();
+    if (error) {
+      showAuthError(error);
+      setIsAuthModalOpen(true);
+    }
+  };
+
+  const handleImportLocalTrades = async () => {
+    if (!session?.user?.id || !cloudSyncReady || !pendingLocalTrades.length || cloudImportBusy) return;
+    setCloudImportBusy(true);
+    setCloudSyncState('loading');
+    setCloudSyncMessage('Importing browser trades to your account…');
+    try {
+      const { data, error } = await supabase
+        .from('trades')
+        .insert(pendingLocalTrades.map((trade) => journalTradeToDatabaseRow(trade, session.user.id, activeProfileId)))
+        .select('*');
+      if (error) throw error;
+      const importedTrades = (data || []).map(databaseRowToJournalTrade);
+      const importedIds = new Set(importedTrades.map((trade) => String(trade._localTradeId || trade.id)));
+      setTrades((current) => [
+        ...importedTrades,
+        ...current.filter((trade) => !importedIds.has(String(trade._localTradeId || trade.id))),
+      ]);
+      setPendingLocalTrades([]);
+      localStorage.removeItem(`tradelog_trades_local_backup_${session.user.id}_${activeProfileId}`);
+      setCloudSyncState('ready');
+      setCloudSyncMessage(`${importedTrades.length} local trade${importedTrades.length === 1 ? '' : 's'} imported to your account.`);
+    } catch (error) {
+      setCloudSyncState('error');
+      setCloudSyncMessage(`Could not import browser trades: ${error?.message || 'Unknown database error'}`);
+    } finally {
+      setCloudImportBusy(false);
+    }
+  };
+
   const handleOpenAddModal = () => {
     setTradeEntryMode('standard');
     setFormData({
@@ -843,13 +1146,21 @@ function App() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteTrade = (id) => {
-    if (window.confirm('Are you sure you want to delete this trade entry?')) {
-      setTrades((prev) => prev.filter((t) => t.id !== id));
-      if (selectedDayTrades) {
-        const remainingForDay = trades.filter((t) => t.id !== id && t.date === selectedDayTrades.dateStr);
-        if (remainingForDay.length === 0) setSelectedDayTrades(null);
+  const handleDeleteTrade = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this trade entry?')) return;
+    if (session?.user?.id && cloudSyncReady && isDatabaseUuid(id)) {
+      const { error } = await supabase.from('trades').delete().eq('id', id).eq('user_id', session.user.id);
+      if (error) {
+        setCloudSyncState('error');
+        setCloudSyncMessage(`Could not delete this cloud trade: ${error.message}`);
+        return;
       }
+    }
+    setTrades((prev) => prev.filter((trade) => trade.id !== id));
+    setPendingLocalTrades((prev) => prev.filter((trade) => String(trade.id) !== String(id) && String(trade._localTradeId || '') !== String(id)));
+    if (selectedDayTrades) {
+      const remainingForDay = trades.filter((trade) => trade.id !== id && trade.date === selectedDayTrades.dateStr);
+      if (remainingForDay.length === 0) setSelectedDayTrades(null);
     }
   };
 
@@ -875,26 +1186,39 @@ function App() {
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (formData.id) {
-      setTrades((prev) =>
-        prev.map((t) =>
-          t.id === formData.id
-            ? { ...formData, resultR: parseFloat(formData.resultR) || 0 }
-            : t
-        )
-      );
-      if (selectedDayTrades && formData.date !== selectedDayTrades.dateStr) {
-        setSelectedDayTrades({ dateStr: formData.date });
+    let tradeToSave = {
+      ...formData,
+      ...(formData.id ? {} : { id: Date.now().toString() }),
+      resultR: parseFloat(formData.resultR) || 0,
+    };
+
+    if (session?.user?.id && cloudSyncReady) {
+      setCloudSyncState('loading');
+      setCloudSyncMessage('Saving trade to your account…');
+      try {
+        const row = journalTradeToDatabaseRow(tradeToSave, session.user.id, activeProfileId);
+        const result = row.id
+          ? await supabase.from('trades').upsert(row, { onConflict: 'id' }).select('*').single()
+          : await supabase.from('trades').insert(row).select('*').single();
+        if (result.error) throw result.error;
+        tradeToSave = databaseRowToJournalTrade(result.data);
+        const syncedLocalId = String(tradeToSave._localTradeId || tradeToSave.id);
+        setPendingLocalTrades((current) => current.filter((trade) => String(trade._localTradeId || trade.id) !== syncedLocalId));
+        setCloudSyncState('ready');
+        setCloudSyncMessage('Trade saved to your Supabase account.');
+      } catch (error) {
+        setCloudSyncState('error');
+        setCloudSyncMessage(`Trade saved in this browser but not in Supabase: ${error?.message || 'Unknown database error'}`);
       }
+    }
+
+    if (formData.id) {
+      setTrades((prev) => prev.map((trade) => trade.id === formData.id ? tradeToSave : trade));
+      if (selectedDayTrades && formData.date !== selectedDayTrades.dateStr) setSelectedDayTrades({ dateStr: formData.date });
     } else {
-      const newTrade = {
-        ...formData,
-        id: Date.now().toString(),
-        resultR: parseFloat(formData.resultR) || 0,
-      };
-      setTrades([newTrade, ...trades]);
+      setTrades((prev) => [tradeToSave, ...prev]);
     }
 
     setIsModalOpen(false);
@@ -1172,56 +1496,30 @@ function App() {
             </h1>
           </div>
           <div className="header-actions">
-            {/* Supabase Authentication Control */}
             {session ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginRight: '0.5rem' }}>
-                <span className="panel-sub" style={{ fontSize: '0.85rem' }}>
-                  {session.user.email}
+              <div className="auth-header-area">
+                <span className="auth-user-email">{session.user.email}</span>
+                <span className={`cloud-sync-indicator ${cloudSyncState}`} title={cloudSyncMessage} role="status">
+                  <i aria-hidden="true" />{cloudSyncState === 'ready' ? 'Cloud synced' : cloudSyncState === 'loading' ? 'Syncing…' : cloudSyncState === 'error' ? 'Sync issue' : 'Local data'}
                 </span>
-                <button
-                  type="button"
-                  onClick={signOut}
-                  style={{
-                    backgroundColor: '#ef4444',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '0.4rem 0.8rem',
-                    borderRadius: '0.375rem',
-                    cursor: 'pointer',
-                    fontSize: '0.85rem',
-                    fontWeight: '600'
-                  }}
-                >
-                  Sign Out
+                {cloudSyncReady && pendingLocalTrades.length > 0 && <button type="button" className="cloud-import-button" onClick={handleImportLocalTrades} disabled={cloudImportBusy}>{cloudImportBusy ? 'Importing…' : `Import ${pendingLocalTrades.length} local`}</button>}
+                <button type="button" className="auth-header-button" onClick={handleAuthSignOut}>Sign out</button>
+              </div>
+            ) : authLoading ? (
+              <span className="auth-loading-label">Checking account…</span>
+            ) : (
+              <div className="auth-header-area">
+                <button type="button" className="auth-header-button" onClick={() => openAuthModal('signin')}>Email sign in</button>
+                <button type="button" className="google-auth-button" onClick={handleGoogleSignIn}>
+                  <svg width="15" height="15" viewBox="0 0 18 18" aria-hidden="true">
+                    <path fill="currentColor" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/>
+                    <path fill="currentColor" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+                    <path fill="currentColor" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
+                    <path fill="currentColor" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
+                  </svg>
+                  Google
                 </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={signInWithGoogle}
-                style={{
-                  backgroundColor: '#4285F4',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '0.4rem 0.9rem',
-                  borderRadius: '0.375rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: '600',
-                  marginRight: '0.5rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem'
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 18 18">
-                  <path fill="#ffffff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/>
-                  <path fill="#ffffff" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-                  <path fill="#ffffff" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
-                  <path fill="#ffffff" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
-                </svg>
-                Sign in with Google
-              </button>
             )}
 
             <button className="theme-toggle-btn" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
@@ -2215,6 +2513,49 @@ function App() {
           </div>
         )}
       </main>
+
+      {isAuthModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsAuthModalOpen(false)}>
+          <section className="modal-content auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <span className="modal-sub">TRADELOG ACCOUNT</span>
+                <h2 id="auth-modal-title">{authMode === 'signin' ? 'Welcome back' : 'Create your account'}</h2>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setIsAuthModalOpen(false)} aria-label="Close sign-in form">✕</button>
+            </div>
+            <p className="panel-sub auth-intro">Sign in to access your journal and sync your trades securely.</p>
+            {!isSupabaseConfigured && <div className="auth-config-message" role="status">Supabase needs its project URL and public anon key in the Vite build settings before sign-in can work.</div>}
+            {authError && <div className="auth-feedback error" role="alert">{authError}</div>}
+            {authNotice && <div className="auth-feedback notice" role="status">{authNotice}</div>}
+
+            <div className="auth-mode-switch" role="tablist" aria-label="Account action">
+              <button type="button" role="tab" aria-selected={authMode === 'signin'} className={authMode === 'signin' ? 'active' : ''} onClick={() => { setAuthMode('signin'); setAuthError(''); setAuthNotice(''); }}>Sign in</button>
+              <button type="button" role="tab" aria-selected={authMode === 'signup'} className={authMode === 'signup' ? 'active' : ''} onClick={() => { setAuthMode('signup'); setAuthError(''); setAuthNotice(''); }}>Create account</button>
+            </div>
+
+            <form className="auth-form" onSubmit={handleAuthSubmit}>
+              <div className="form-group">
+                <label htmlFor="auth-email">Email</label>
+                <input id="auth-email" type="email" autoComplete="email" required value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="you@example.com" />
+              </div>
+              <div className="form-group">
+                <label htmlFor="auth-password">Password</label>
+                <input id="auth-password" type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} minLength={6} required value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder={authMode === 'signup' ? 'At least 6 characters' : 'Enter your password'} />
+              </div>
+              <button className="btn-primary auth-submit" type="submit" disabled={authBusy || !isSupabaseConfigured}>
+                {authBusy ? 'Please wait…' : authMode === 'signin' ? 'Sign in with email' : 'Create account'}
+              </button>
+            </form>
+
+            <div className="auth-divider"><span>or</span></div>
+            <button className="google-auth-button auth-modal-google" type="button" onClick={handleGoogleSignIn} disabled={authBusy || !isSupabaseConfigured}>
+              <span aria-hidden="true">G</span> Continue with Google
+            </button>
+            {authMode === 'signup' && <p className="auth-confirmation-note">If email confirmation is enabled in Supabase, we’ll ask you to confirm your address before signing in.</p>}
+          </section>
+        </div>
+      )}
 
       {/* DAILY CALENDAR DETAILS */}
       {selectedDayTrades && (
