@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { supabase, signInWithEmail, signUpWithEmail, sendPasswordResetEmail, signOut, isSupabaseConfigured } from './supabase';
+import { choosePersonalityMessage, clearNoSetupReview, readNoSetupReview, toggleNoSetupReview } from './personality';
 import './styles.css';
 
 const PSYCHOLOGY_OPTIONS = [
@@ -202,6 +203,27 @@ function getLocalDateString(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function PersonalityNudge({ category, contextKey }) {
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    setMessage(choosePersonalityMessage(category, contextKey));
+  }, [category, contextKey]);
+
+  if (!message) return null;
+  const tone = category.startsWith('green') || category === 'noTradeReviewed' ? 'positive' : category === 'red' ? 'negative' : 'neutral';
+  return (
+    <aside className={`personality-nudge ${tone}`} role="status" aria-live="polite">
+      <span className="personality-nudge-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4.1a2.5 2.5 0 0 1-2.5-2.4Z"/><path d="M8 8h8M8 11.5h5"/></svg>
+      </span>
+      <div className="personality-nudge-copy">
+        <span className="personality-nudge-label">YOUR JOURNAL BUDDY</span>
+        <p>{message}</p>
+      </div>
+    </aside>
+  );
+}
+
 function normalizeTopDownData(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
   if (Array.isArray(data.cards)) return { cards: data.cards };
@@ -356,6 +378,7 @@ function App() {
   const [selectedDayTrades, setSelectedDayTrades] = useState(null);
   const [currentDate, setCurrentDate] = useState(new Date(2026, 9, 1));
   const [dashboardSelectedDate, setDashboardSelectedDate] = useState('');
+  const [reviewedNoSetupDisplay, setReviewedNoSetupDisplay] = useState({ profileId: '', date: '', reviewed: false });
   const [searchTerm, setSearchTerm] = useState('');
   const [tradeFilters, setTradeFilters] = useState({ instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' });
   const [tradePage, setTradePage] = useState(1);
@@ -569,6 +592,26 @@ function App() {
   const winRate = trades.length > 0 ? Math.round((winCount / trades.length) * 100) : 0;
   const avgR = trades.length > 0 ? (totalR / trades.length).toFixed(1) : '0.0';
   const totalPL = (totalR * 10).toFixed(0);
+  const auraCleanTrades = trades.filter((trade) => !(trade.mistakes || []).length).length;
+  const auraDisciplineRate = trades.length ? Math.round((auraCleanTrades / trades.length) * 100) : 0;
+  const auraProfitRate = winRate;
+  const auraPoints = trades.length ? Math.round(((auraDisciplineRate + auraProfitRate) / 2) * 10) : 0;
+  const todayKey = getLocalDateString();
+  const todayTrades = trades.filter((trade) => trade.date === todayKey);
+  const todayNetR = todayTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
+  const noSetupReviewedToday = todayTrades.length === 0 && (
+    reviewedNoSetupDisplay.profileId === activeProfileId && reviewedNoSetupDisplay.date === todayKey
+      ? reviewedNoSetupDisplay.reviewed
+      : readNoSetupReview(activeProfileId, todayKey)
+  );
+  const personalityCategory = todayTrades.length === 0
+    ? noSetupReviewedToday ? 'noTradeReviewed' : 'noTrades'
+    : todayNetR > 0
+      ? todayTrades.every((trade) => (trade.psychology || []).includes('Disciplined') && !(trade.mistakes || []).length)
+        ? 'greenDisciplined'
+        : todayTrades.some((trade) => (trade.mistakes || []).length > 0) ? 'greenWithMistakes' : 'green'
+      : todayNetR < 0 ? 'red' : 'flat';
+  const personalityContextKey = `${activeProfileId}:${todayKey}:${todayTrades.map((trade) => `${trade.id}:${trade.resultR}:${(trade.mistakes || []).join(',')}:${(trade.psychology || []).join(',')}`).join('|')}:${noSetupReviewedToday}`;
 
   // Advanced Analytics
   const winningTrades = trades.filter((t) => (parseFloat(t.resultR) || 0) > 0);
@@ -1252,6 +1295,10 @@ function App() {
     } else {
       setTrades((prev) => [tradeToSave, ...prev]);
     }
+    clearNoSetupReview(activeProfileId, tradeToSave.date);
+    if (reviewedNoSetupDisplay.profileId === activeProfileId && reviewedNoSetupDisplay.date === tradeToSave.date) {
+      setReviewedNoSetupDisplay({ profileId: activeProfileId, date: tradeToSave.date, reviewed: false });
+    }
 
     setIsModalOpen(false);
     setFormData(EMPTY_FORM);
@@ -1271,6 +1318,11 @@ function App() {
     setCurrentDate(new Date(year, month + delta, 1));
   };
 
+  const handleNoSetupReviewToggle = (date) => {
+    const reviewed = toggleNoSetupReview(activeProfileId, date);
+    setReviewedNoSetupDisplay({ profileId: activeProfileId, date, reviewed });
+  };
+
   const tradesByDate = trades.reduce((acc, trade) => {
     acc[trade.date] = acc[trade.date] || [];
     acc[trade.date].push(trade);
@@ -1288,12 +1340,16 @@ function App() {
   const dashboardMonthNetR = dashboardMonthTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
   const dashboardBestDay = dashboardMonthDays.reduce((best, day) => !best || day.totalR > best.totalR ? day : best, null);
   const dashboardRedDays = dashboardMonthDays.filter((day) => day.totalR < 0).length;
-  const dashboardMistakeTradeCount = dashboardMonthTrades.filter((trade) => (trade.mistakes || []).length > 0).length;
   const dashboardDefaultDate = dashboardMonthTrades[0]?.date || `${dashboardMonthPrefix}-${String(new Date().getDate()).padStart(2, '0')}`;
   const dashboardReviewDate = dashboardSelectedDate.startsWith(`${dashboardMonthPrefix}-`)
     ? dashboardSelectedDate
     : dashboardDefaultDate;
   const dashboardReviewTrades = (tradesByDate[dashboardReviewDate] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const noSetupReviewedForCalendarDate = dashboardReviewDate === todayKey && (
+    reviewedNoSetupDisplay.profileId === activeProfileId && reviewedNoSetupDisplay.date === todayKey
+      ? reviewedNoSetupDisplay.reviewed
+      : readNoSetupReview(activeProfileId, todayKey)
+  );
   const dashboardMistakeSummary = MISTAKE_TAGS.map((tag) => {
     const tagged = dashboardMonthTrades.filter((trade) => (trade.mistakes || []).includes(tag));
     const totalR = tagged.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
@@ -1426,7 +1482,7 @@ function App() {
         <div className="brand">
           <span className="dot"></span>
           <div className="brand-copy">
-            <h2 className="brand-title">TradeLog</h2>
+            <h2 className="brand-title">ZEROTILT</h2>
             <p className="brand-sub">Personal Journal</p>
           </div>
           <button
@@ -1479,35 +1535,35 @@ function App() {
             onClick={() => setActiveTab('dashboard')}
             title="Dashboard"
           >
-            <span className="nav-icon" aria-hidden="true">📊</span><span className="nav-label">Dashboard</span>
+            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></span><span className="nav-label">Dashboard</span>
           </button>
           <button
             className={`nav-item ${activeTab === 'calendar' ? 'active' : ''}`}
             onClick={() => setActiveTab('calendar')}
             title="Calendar"
           >
-            <span className="nav-icon" aria-hidden="true">📅</span><span className="nav-label">Calendar</span>
+            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M8 14h2M14 14h2M8 17h2"/></svg></span><span className="nav-label">Calendar</span>
           </button>
           <button
             className={`nav-item ${activeTab === 'trades' ? 'active' : ''}`}
             onClick={() => setActiveTab('trades')}
             title="Trades"
           >
-            <span className="nav-icon" aria-hidden="true">📒</span><span className="nav-label">Trades</span>
+            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h13a2 2 0 0 1 2 2v15H7a3 3 0 0 1-3-3V5a2 2 0 0 1 2-2Z"/><path d="M7 3v17M10 8h7M10 12h7M10 16h5"/></svg></span><span className="nav-label">Trades</span>
           </button>
           <button
             className={`nav-item ${activeTab === 'topdown' ? 'active' : ''}`}
             onClick={() => setActiveTab('topdown')}
             title="Top Down Analysis"
           >
-            <span className="nav-icon" aria-hidden="true">🔎</span><span className="nav-label">Top Down Analysis</span>
+            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M8 10.5h5M10.5 8v5"/></svg></span><span className="nav-label">Top Down Analysis</span>
           </button>
           <button
             className={`nav-item ${activeTab === 'simulator' ? 'active' : ''}`}
             onClick={() => setActiveTab('simulator')}
             title="Monte Carlo"
           >
-            <span className="nav-icon" aria-hidden="true">🎲</span><span className="nav-label">Monte Carlo</span>
+            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="8" cy="8" r="1"/><circle cx="16" cy="8" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="8" cy="16" r="1"/><circle cx="16" cy="16" r="1"/></svg></span><span className="nav-label">Monte Carlo</span>
           </button>
         </nav>
       </aside>
@@ -1553,6 +1609,10 @@ function App() {
             </button>
           </div>
         </header>
+
+        {tradesProfileId === activeProfileId && (!session || isProfileDataReady) && (
+          <PersonalityNudge category={personalityCategory} contextKey={personalityContextKey} />
+        )}
 
         {/* DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
@@ -1751,10 +1811,10 @@ function App() {
                 <div className="stat-value text-red">{dashboardRedDays}</div>
                 <span className="stat-sub">Of {dashboardMonthDays.length} active days</span>
               </div>
-              <div className="stat-card">
-                <span className="stat-label">MISTAKE TAGGED</span>
-                <div className="stat-value">{dashboardMistakeTradeCount}</div>
-                <span className="stat-sub">Trades this month</span>
+              <div className="stat-card aura-calendar-stat">
+                <div className="aura-calendar-circle" style={{ '--aura-progress': `${auraPoints / 10}%` }} role="img" aria-label={`Aura Points: ${auraPoints} out of 1000`} title={`Aura Points: ${auraPoints} out of 1000`}>
+                  <div className="aura-calendar-circle-center"><strong>{auraPoints}</strong><span>AURA</span></div>
+                </div>
               </div>
             </div>
 
@@ -1764,7 +1824,7 @@ function App() {
                   <h2>{monthNames[month]} {year}</h2>
                   <div className="calendar-controls">
                     <button onClick={() => changeMonth(-1)} className="cal-btn" aria-label="Previous month">◄</button>
-                    <button onClick={() => setCurrentDate(new Date())} className="cal-btn">Today</button>
+                    <button onClick={() => { setCurrentDate(new Date()); setDashboardSelectedDate(todayKey); }} className="cal-btn">Today</button>
                     <button onClick={() => changeMonth(1)} className="cal-btn" aria-label="Next month">►</button>
                   </div>
                 </div>
@@ -1830,7 +1890,23 @@ function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="journal-empty-day">No trades logged for this date.</div>
+                  <>
+                    <div className="journal-empty-day">No trades logged for this date.</div>
+                    {dashboardReviewDate === todayKey && (
+                      <button
+                        type="button"
+                        className={`no-setup-review ${noSetupReviewedForCalendarDate ? 'selected' : ''}`}
+                        aria-pressed={noSetupReviewedForCalendarDate}
+                        onClick={() => handleNoSetupReviewToggle(todayKey)}
+                      >
+                        <span className="no-setup-review-check" aria-hidden="true">✓</span>
+                        <span className="no-setup-review-copy">
+                          <strong>{noSetupReviewedForCalendarDate ? 'Reviewed: no valid setup' : 'Mark today reviewed · no valid setup'}</strong>
+                          <small>This confirms you checked the market and chose not to force a trade.</small>
+                        </span>
+                      </button>
+                    )}
+                  </>
                 )}
                 <button className="cal-btn journal-add-day-trade" onClick={() => handleAddTradeOnDate(dashboardReviewDate)}>＋ Add trade for this date</button>
               </section>
@@ -2535,6 +2611,7 @@ function App() {
             )}
           </div>
         )}
+
       </main>
 
       {isAuthModalOpen && (
@@ -2542,7 +2619,7 @@ function App() {
           <section className="modal-content auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <span className="modal-sub">TRADELOG ACCOUNT</span>
+                <span className="modal-sub">ZEROTILT ACCOUNT</span>
                 <h2 id="auth-modal-title">{authMode === 'signin' ? 'Welcome back' : authMode === 'recovery' ? 'Reset your password' : 'Create your account'}</h2>
               </div>
               <button type="button" className="close-btn" onClick={() => setIsAuthModalOpen(false)} aria-label="Close sign-in form">✕</button>

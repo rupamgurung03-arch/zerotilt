@@ -271,6 +271,18 @@ option {
   line-height: 1;
 }
 
+.nav-icon svg {
+  display: block;
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nav-icon svg circle:not(:first-child) { fill: currentColor; stroke: none; }
+
 .nav-label {
   white-space: nowrap;
 }
@@ -446,6 +458,46 @@ option {
   box-shadow: var(--shadow-card);
   width: 100%;
   box-sizing: border-box;
+}
+
+@keyframes journal-card-arrive {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.stat-card,
+.panel-card {
+  animation: journal-card-arrive 420ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.stats-grid > :nth-child(2),
+.journal-review-stats > :nth-child(2),
+.dashboard-grid > :nth-child(2),
+.journal-habits-grid > :nth-child(2) { animation-delay: 45ms; }
+.stats-grid > :nth-child(3),
+.journal-review-stats > :nth-child(3),
+.dashboard-grid > :nth-child(3),
+.journal-habits-grid > :nth-child(3) { animation-delay: 90ms; }
+.stats-grid > :nth-child(4),
+.journal-review-stats > :nth-child(4),
+.dashboard-grid > :nth-child(4),
+.journal-habits-grid > :nth-child(4) { animation-delay: 135ms; }
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .stat-card:hover,
+  .panel-card:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--accent-amber) 38%, var(--border-color));
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+  }
+  .aura-calendar-stat:hover .aura-calendar-circle { transform: rotate(-90deg) scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-card,
+  .panel-card,
+  .personality-nudge { animation: none; transition: none; }
 }
 
 .panel-header {
@@ -2306,6 +2358,77 @@ input:focus, select:focus, textarea:focus {
 .top-down-intro .panel-sub { margin: 0; max-width: 760px; line-height: 1.55; }
 .top-down-error { margin: -6px 0 0; color: var(--accent-red); font-size: 12px; }
 
+.aura-calendar-stat { display: grid; min-height: 124px; place-items: center; padding: 12px; }
+.aura-calendar-circle {
+  display: grid;
+  width: 98px;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent-amber) 0 var(--aura-progress), var(--border-color) var(--aura-progress) 100%);
+  transform: rotate(-90deg);
+}
+.aura-calendar-circle-center {
+  display: flex;
+  width: calc(100% - 10px);
+  height: calc(100% - 10px);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--bg-card);
+  transform: rotate(90deg);
+}
+.aura-calendar-circle-center strong { color: var(--text-main); font-family: var(--font-mono); font-size: 25px; line-height: 1; }
+.aura-calendar-circle-center span { margin-top: 5px; color: var(--text-dim); font-size: 8px; font-weight: 700; letter-spacing: 1px; }
+
+.personality-nudge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -8px 0 22px;
+  padding: 12px 15px;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--accent-amber);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+  animation: journal-card-arrive 360ms ease both;
+}
+.personality-nudge.positive { border-left-color: var(--accent-green); }
+.personality-nudge.negative { border-left-color: var(--accent-red); }
+.personality-nudge-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border-color); border-radius: 8px; color: var(--accent-amber); }
+.personality-nudge.positive .personality-nudge-icon { color: var(--accent-green); }
+.personality-nudge.negative .personality-nudge-icon { color: var(--accent-red); }
+.personality-nudge-icon svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.personality-nudge-copy { min-width: 0; }
+.personality-nudge-label { display: block; margin-bottom: 2px; color: var(--text-dim); font-size: 9px; font-weight: 800; letter-spacing: 1px; }
+.personality-nudge-copy p { color: var(--text-main); font-size: 12px; font-weight: 600; line-height: 1.5; }
+
+.no-setup-review {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 11px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+.no-setup-review:hover,
+.no-setup-review.selected { border-color: rgba(16, 185, 129, 0.36); background: var(--accent-green-glow); }
+.no-setup-review:focus-visible { outline: 2px solid var(--accent-green); outline-offset: 2px; }
+.no-setup-review-check { display: grid; width: 25px; height: 25px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border-color); border-radius: 50%; color: var(--text-dim); font-size: 12px; }
+.no-setup-review.selected .no-setup-review-check { border-color: var(--accent-green); color: var(--accent-green); }
+.no-setup-review-copy { display: grid; gap: 2px; }
+.no-setup-review-copy strong { color: var(--text-main); font-size: 11px; }
+.no-setup-review-copy small { color: var(--text-dim); font-size: 10px; line-height: 1.4; }
+
 .top-down-create-controls { display: flex; flex: 0 0 auto; align-items: flex-end; gap: 10px; }
 .top-down-create-date { display: flex; flex-direction: column; gap: 5px; color: var(--text-dim); font-size: 10px; font-weight: 700; }
 .top-down-create-date input { min-height: 40px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-main); color-scheme: dark; font: inherit; font-size: 12px; }
@@ -2349,7 +2472,7 @@ input:focus, select:focus, textarea:focus {
 .cloud-import-button { min-height: 32px; padding: 6px 9px; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: var(--radius-sm); background: rgba(56, 189, 248, 0.08); color: var(--accent-blue); font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap; }
 .cloud-import-button:disabled { opacity: 0.55; cursor: wait; }
 @keyframes cloud-sync-pulse { to { opacity: 0.35; } }
-.auth-modal { max-width: 460px; }
+.auth-modal { max-width: 480px; }
 .auth-intro { margin: -12px 0 18px; line-height: 1.5; }
 .auth-config-message,
 .auth-feedback { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.5; }
@@ -2359,8 +2482,32 @@ input:focus, select:focus, textarea:focus {
 .auth-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 18px; padding: 4px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-dark); }
 .auth-mode-switch button { min-height: 36px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .auth-mode-switch button.active { background: var(--accent-amber-glow); color: var(--accent-amber); }
-.auth-form { display: grid; gap: 14px; }
-.auth-form .form-group { margin: 0; }
+.auth-form { display: grid; gap: 18px; }
+.auth-form .form-group { margin: 0; gap: 8px; }
+.auth-form .form-group label { font-size: 12px; }
+.auth-form input[type="email"],
+.auth-form input[type="password"] {
+  width: 100%;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 13px 15px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--bg-dark);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.auth-form input[type="email"]::placeholder,
+.auth-form input[type="password"]::placeholder { color: var(--text-dim); }
+.auth-form input[type="email"]:focus,
+.auth-form input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent-amber);
+  box-shadow: 0 0 0 3px var(--accent-amber-glow);
+}
 .auth-submit { width: 100%; min-height: 42px; }
 .auth-submit:disabled { opacity: 0.55; cursor: not-allowed; }
 .auth-text-button { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--accent-amber); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
