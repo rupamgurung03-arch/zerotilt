@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { supabase, signInWithEmail, signUpWithEmail, sendPasswordResetEmail, signOut, isSupabaseConfigured } from './supabase';
-import { choosePersonalityMessage, clearNoSetupReview, readNoSetupReview, toggleNoSetupReview } from './personality';
+import { chooseBottomBuddyMessage, choosePersonalityMessage, clearNoSetupReview, readNoSetupReview, toggleNoSetupReview } from './personality';
 import './styles.css';
 
 const PSYCHOLOGY_OPTIONS = [
@@ -29,6 +29,8 @@ const INSTRUMENT_PRESETS = [
 const DEFAULT_PROFILES = [
   { id: 'default', name: 'Main Account' },
 ];
+
+const DEFAULT_TRADE_FILTERS = { instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' };
 
 const EMPTY_FORM = {
   id: null,
@@ -203,21 +205,35 @@ function getLocalDateString(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function PersonalityNudge({ category, contextKey }) {
+function countBusinessDaysSince(dateString, todayString) {
+  if (!dateString || dateString >= todayString) return 0;
+  const cursor = new Date(`${dateString}T12:00:00`);
+  const today = new Date(`${todayString}T12:00:00`);
+  let businessDays = 0;
+  cursor.setDate(cursor.getDate() + 1);
+  while (cursor <= today) {
+    const weekday = cursor.getDay();
+    if (weekday > 0 && weekday < 6) businessDays += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return businessDays;
+}
+
+function PersonalityNudge({ category, contextKey, page }) {
   const [message, setMessage] = useState('');
   useEffect(() => {
-    setMessage(choosePersonalityMessage(category, contextKey));
-  }, [category, contextKey]);
+    setMessage(choosePersonalityMessage(category, contextKey, page));
+  }, [category, contextKey, page]);
 
   if (!message) return null;
-  const tone = category.startsWith('green') || category === 'noTradeReviewed' ? 'positive' : category === 'red' ? 'negative' : 'neutral';
+  const tone = category.startsWith('green') || category === 'noTradeReviewed' ? 'positive' : category.startsWith('red') || category === 'revengeTrade' ? 'negative' : 'neutral';
   return (
     <aside className={`personality-nudge ${tone}`} role="status" aria-live="polite">
       <span className="personality-nudge-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4.1a2.5 2.5 0 0 1-2.5-2.4Z"/><path d="M8 8h8M8 11.5h5"/></svg>
       </span>
       <div className="personality-nudge-copy">
-        <span className="personality-nudge-label">YOUR JOURNAL BUDDY</span>
+        <span className="personality-nudge-label">PIP SQUEAK</span>
         <p>{message}</p>
       </div>
     </aside>
@@ -366,12 +382,31 @@ function App() {
   });
   const [greeting, setGreeting] = useState(getLocalGreeting);
   const [equityChartType, setEquityChartType] = useState('line');
-  const [performanceFilters, setPerformanceFilters] = useState({
-    instrument: 'all',
-    direction: 'all',
-    timeOfDay: 'all',
+  const [bottomBuddyPopup, setBottomBuddyPopup] = useState('');
+  const [pipSqueakEnabled, setPipSqueakEnabled] = useState(() => {
+    try { return localStorage.getItem('zerotilt_pip_squeak_enabled_v1') !== 'false'; } catch { return true; }
   });
+  const [deferredPwaInstall, setDeferredPwaInstall] = useState(null);
+  const [isPwaInstalled, setIsPwaInstalled] = useState(() => (
+    typeof window !== 'undefined' && (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true)
+  ));
+  const [mindsetPrankStep, setMindsetPrankStep] = useState(-1);
+  const bottomBuddyTimer = useRef(null);
+  useEffect(() => {
+    try { localStorage.setItem('zerotilt_pip_squeak_enabled_v1', String(pipSqueakEnabled)); } catch { /* Preference still applies for this visit. */ }
+    if (!pipSqueakEnabled) {
+      window.clearTimeout(bottomBuddyTimer.current);
+      setBottomBuddyPopup('');
+      setMindsetPrankStep(-1);
+    }
+  }, [pipSqueakEnabled]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [quickAddMode, setQuickAddMode] = useState(false);
+  const [hasRestoredTradeDraft, setHasRestoredTradeDraft] = useState(false);
+  const [tradeFormTouched, setTradeFormTouched] = useState(false);
+  const [reviewReminderDismissed, setReviewReminderDismissed] = useState(false);
+  const searchInputRef = useRef(null);
+  const tradePrefsProfileRef = useRef(activeProfileId);
   const [tradeEntryMode, setTradeEntryMode] = useState('standard');
   const [previewImage, setPreviewImage] = useState(null);
   const [selectedTradeDetails, setSelectedTradeDetails] = useState(null);
@@ -381,10 +416,81 @@ function App() {
   const [dashboardTradePage, setDashboardTradePage] = useState(1);
   const [selectedDayTradePage, setSelectedDayTradePage] = useState(1);
   const [reviewedNoSetupDisplay, setReviewedNoSetupDisplay] = useState({ profileId: '', date: '', reviewed: false });
-  const [searchTerm, setSearchTerm] = useState('');
-  const [tradeFilters, setTradeFilters] = useState({ instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' });
+  const [searchTerm, setSearchTerm] = useState(() => {
+    try { return localStorage.getItem(`tradelog_search_${activeProfileId}`) || ''; } catch { return ''; }
+  });
+  const [tradeFilters, setTradeFilters] = useState(() => {
+    try { return { ...DEFAULT_TRADE_FILTERS, ...JSON.parse(localStorage.getItem(`tradelog_filters_${activeProfileId}`) || '{}') }; } catch { return DEFAULT_TRADE_FILTERS; }
+  });
   const [tradePage, setTradePage] = useState(1);
   const [formData, setFormData] = useState(EMPTY_FORM);
+
+  const showBottomBuddyPopup = (trigger) => {
+    if (!pipSqueakEnabled || Math.random() >= 0.58) return;
+    window.clearTimeout(bottomBuddyTimer.current);
+    setMindsetPrankStep(-1);
+    setBottomBuddyPopup(chooseBottomBuddyMessage(trigger));
+    bottomBuddyTimer.current = window.setTimeout(() => setBottomBuddyPopup(''), 5600);
+  };
+
+  const showCalendarMindsetPrank = () => {
+    if (!pipSqueakEnabled) return;
+    window.clearTimeout(bottomBuddyTimer.current);
+    setMindsetPrankStep(0);
+    setBottomBuddyPopup('Bro, click on Mindset.');
+  };
+
+  const advanceCalendarMindsetPrank = () => {
+    const nextStep = mindsetPrankStep + 1;
+    setMindsetPrankStep(nextStep);
+    if (nextStep === 1) setBottomBuddyPopup('Empty. Just like your brain.');
+    if (nextStep === 2) setBottomBuddyPopup('I told you it’s empty like your brain. You proved it.');
+    if (nextStep >= 3) {
+      setBottomBuddyPopup('Thanks from the dev. I love you ❤️');
+      bottomBuddyTimer.current = window.setTimeout(() => {
+        setBottomBuddyPopup('');
+        setMindsetPrankStep(-1);
+      }, 5600);
+    }
+  };
+
+  useEffect(() => {
+    if (!pipSqueakEnabled) return undefined;
+    setBottomBuddyPopup('');
+    setMindsetPrankStep(-1);
+    window.clearTimeout(bottomBuddyTimer.current);
+    let bottomCueUsed = false;
+    let calendarPrankAlreadyUsed = false;
+    try {
+      calendarPrankAlreadyUsed = localStorage.getItem('zerotilt_calendar_mindset_prank_seen_v1') === 'true';
+    } catch {
+      // The prank still works for this visit if browser storage is unavailable.
+    }
+    const maybeShowBottomBuddy = () => {
+      const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 120;
+      if (!bottomCueUsed && nearBottom) {
+        if (activeTab !== 'dashboard' && activeTab !== 'calendar') return;
+        bottomCueUsed = true;
+        if (activeTab === 'calendar' && !calendarPrankAlreadyUsed && Math.random() < 0.06) {
+          calendarPrankAlreadyUsed = true;
+          try {
+            localStorage.setItem('zerotilt_calendar_mindset_prank_seen_v1', 'true');
+          } catch {
+            // Keep the current interaction usable even when storage is unavailable.
+          }
+          showCalendarMindsetPrank();
+        } else {
+          showBottomBuddyPopup('scroll');
+        }
+      }
+    };
+
+    window.addEventListener('scroll', maybeShowBottomBuddy, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', maybeShowBottomBuddy);
+      window.clearTimeout(bottomBuddyTimer.current);
+    };
+  }, [activeTab, pipSqueakEnabled]);
 
   useEffect(() => {
     setSelectedDayTradePage(1);
@@ -393,6 +499,23 @@ function App() {
   useEffect(() => {
     const greetingTimer = setInterval(() => setGreeting(getLocalGreeting()), 60_000);
     return () => clearInterval(greetingTimer);
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeInstall = (event) => {
+      event.preventDefault();
+      setDeferredPwaInstall(event);
+    };
+    const handleInstalled = () => {
+      setIsPwaInstalled(true);
+      setDeferredPwaInstall(null);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleInstalled);
+    };
   }, []);
 
   useEffect(() => {
@@ -414,6 +537,26 @@ function App() {
     setTrades([]);
     setTradesProfileId(activeProfileId);
   }, [activeProfileId, session?.user?.id]);
+
+  // Keep trade search and filters with the selected journal profile.
+  useEffect(() => {
+    if (tradePrefsProfileRef.current !== activeProfileId) {
+      tradePrefsProfileRef.current = activeProfileId;
+      try {
+        setTradeFilters({ ...DEFAULT_TRADE_FILTERS, ...JSON.parse(localStorage.getItem(`tradelog_filters_${activeProfileId}`) || '{}') });
+        setSearchTerm(localStorage.getItem(`tradelog_search_${activeProfileId}`) || '');
+      } catch {
+        setTradeFilters(DEFAULT_TRADE_FILTERS);
+        setSearchTerm('');
+      }
+      setTradePage(1);
+      return;
+    }
+    try {
+      localStorage.setItem(`tradelog_filters_${activeProfileId}`, JSON.stringify(tradeFilters));
+      localStorage.setItem(`tradelog_search_${activeProfileId}`, searchTerm);
+    } catch { /* Search still works when browser storage is unavailable. */ }
+  }, [tradeFilters, searchTerm, activeProfileId]);
 
   // Save trades specific to current profile
   useEffect(() => {
@@ -574,6 +717,19 @@ function App() {
   const currentProfileObj = profiles.find((p) => p.id === activeProfileId) || profiles[0];
   const isProfileDataReady = tradesProfileId === activeProfileId;
 
+  // Save unfinished new entries continuously so a refresh does not erase them.
+  useEffect(() => {
+    if (!isModalOpen || formData.id || !tradeFormTouched || tradesProfileId !== activeProfileId) return;
+    try { localStorage.setItem(tradeDraftKey(), JSON.stringify(formData)); } catch { /* The form remains usable if storage is full. */ }
+  }, [formData, isModalOpen, activeProfileId, tradesProfileId, tradeFormTouched]);
+
+  useEffect(() => {
+    const dismissedForToday = () => {
+      try { return localStorage.getItem(`tradelog_review_reminder_${activeProfileId}`) === getLocalDateString(); } catch { return false; }
+    };
+    setReviewReminderDismissed(dismissedForToday());
+  }, [activeProfileId]);
+
   // Auto-Calculate R-Multiple
   useEffect(() => {
     const entry = parseFloat(formData.entry);
@@ -605,18 +761,70 @@ function App() {
   const todayKey = getLocalDateString();
   const todayTrades = trades.filter((trade) => trade.date === todayKey);
   const todayNetR = todayTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
+  const todayHasRevengeTag = todayTrades.some((trade) => (trade.psychology || []).includes('Revenge Trade'));
+  const negativeMindsetTags = PSYCHOLOGY_OPTIONS.filter((option) => option.type === 'negative').map((option) => option.label);
+  const todayHasRuleBreak = todayTrades.some((trade) => (
+    (trade.mistakes || []).length > 0 || (trade.psychology || []).some((tag) => negativeMindsetTags.includes(tag))
+  ));
+  const todayFollowedRules = todayTrades.length > 0 && todayTrades.every((trade) => (
+    (trade.psychology || []).includes('Disciplined') && !(trade.mistakes || []).length
+  ));
   const noSetupReviewedToday = todayTrades.length === 0 && (
     reviewedNoSetupDisplay.profileId === activeProfileId && reviewedNoSetupDisplay.date === todayKey
       ? reviewedNoSetupDisplay.reviewed
       : readNoSetupReview(activeProfileId, todayKey)
   );
+  const chronologicalTrades = [...trades].sort((a, b) => new Date(`${a.date}T${a.time || '00:00'}`) - new Date(`${b.date}T${b.time || '00:00'}`));
+  const latestJournalDate = chronologicalTrades[chronologicalTrades.length - 1]?.date || '';
+  const inactiveForBusinessDays = countBusinessDaysSince(latestJournalDate, todayKey);
+  let currentLosingStreak = 0;
+  for (let index = chronologicalTrades.length - 1; index >= 0; index -= 1) {
+    if ((parseFloat(chronologicalTrades[index].resultR) || 0) < 0) currentLosingStreak += 1;
+    else break;
+  }
+  let runningEquityR = 0;
+  let previousEquityPeakR = 0;
+  let setNewEquityHighToday = false;
+  const monthlyNetResults = {};
+  trades.forEach((trade) => {
+    const monthKey = (trade.date || '').slice(0, 7);
+    if (monthKey) monthlyNetResults[monthKey] = (monthlyNetResults[monthKey] || 0) + (parseFloat(trade.resultR) || 0);
+  });
+  chronologicalTrades.forEach((trade) => {
+    runningEquityR += parseFloat(trade.resultR) || 0;
+    if (trade.date === todayKey && runningEquityR > previousEquityPeakR) setNewEquityHighToday = true;
+    previousEquityPeakR = Math.max(previousEquityPeakR, runningEquityR);
+  });
+  const currentMonthKey = todayKey.slice(0, 7);
+  const currentMonthNetR = monthlyNetResults[currentMonthKey] || 0;
+  const bestPreviousMonthR = Math.max(0, ...Object.entries(monthlyNetResults).filter(([monthKey]) => monthKey !== currentMonthKey).map(([, netR]) => netR));
+  const setBestMonthToday = todayTrades.length > 0 && currentMonthNetR > bestPreviousMonthR;
+  const tradesNeedingReview = [...trades]
+    .filter((trade) => !String(trade.notes || '').trim() || !(trade.screenshotUrl || trade.tradingViewUrl || trade.plannedScreenshotUrl || trade.plannedTradingViewUrl))
+    .sort((a, b) => new Date(`${b.date}T${b.time || '00:00'}`) - new Date(`${a.date}T${a.time || '00:00'}`))
+    .slice(0, 3);
+  const dismissReviewReminder = () => {
+    setReviewReminderDismissed(true);
+    try { localStorage.setItem(`tradelog_review_reminder_${activeProfileId}`, getLocalDateString()); } catch { /* Dismiss for this view. */ }
+  };
+  const missingTodayEvidence = todayTrades.length > 0 && todayTrades.every((trade) => (
+    !String(trade.notes || '').trim() && !trade.screenshotUrl && !trade.tradingViewUrl && !trade.plannedScreenshotUrl && !trade.plannedTradingViewUrl
+  ));
+  const limitedJournalData = trades.length > 0 && trades.length < 5;
   const personalityCategory = todayTrades.length === 0
-    ? noSetupReviewedToday ? 'noTradeReviewed' : 'noTrades'
-    : todayNetR > 0
-      ? todayTrades.every((trade) => (trade.psychology || []).includes('Disciplined') && !(trade.mistakes || []).length)
-        ? 'greenDisciplined'
-        : todayTrades.some((trade) => (trade.mistakes || []).length > 0) ? 'greenWithMistakes' : 'green'
-      : todayNetR < 0 ? 'red' : 'flat';
+    ? noSetupReviewedToday ? 'noTradeReviewed'
+      : latestJournalDate && inactiveForBusinessDays >= 4 ? 'inactiveJournal'
+        : limitedJournalData ? 'limitedData' : 'noTrades'
+    : todayHasRevengeTag ? 'revengeTrade'
+      : missingTodayEvidence ? 'missingEvidence'
+        : todayNetR < 0 && currentLosingStreak >= 3 ? 'longLosingStreak'
+          : todayNetR > 0 && setNewEquityHighToday ? 'newEquityHigh'
+            : todayNetR > 0 && setBestMonthToday ? 'bestMonth'
+      : todayNetR > 0
+        ? todayFollowedRules ? 'greenDisciplined' : todayHasRuleBreak ? 'greenWithMistakes' : 'green'
+        : todayNetR < 0
+          ? todayFollowedRules ? 'redDisciplined' : todayHasRuleBreak ? 'redWithMistakes' : 'red'
+          : 'flat';
   const personalityContextKey = `${activeProfileId}:${todayKey}:${todayTrades.map((trade) => `${trade.id}:${trade.resultR}:${(trade.mistakes || []).join(',')}:${(trade.psychology || []).join(',')}`).join('|')}:${noSetupReviewedToday}`;
 
   // Advanced Analytics
@@ -736,7 +944,6 @@ function App() {
   const switchActiveProfile = (profileId) => {
     setMcResults(null);
     setTradesProfileId(null);
-    setPerformanceFilters({ instrument: 'all', direction: 'all', timeOfDay: 'all' });
     setTradeFilters({ instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' });
     setDashboardSelectedDate('');
     setActiveProfileId(profileId);
@@ -1196,17 +1403,61 @@ function App() {
     }
   };
 
-  const handleOpenAddModal = () => {
+  const currentDateTime = () => ({ date: getLocalDateString(), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) });
+  const tradeDraftKey = (profileId = activeProfileId) => `tradelog_trade_draft_${profileId}`;
+
+  const handleOpenAddModal = (quick = false) => {
     setTradeEntryMode('standard');
-    setFormData({
-      ...EMPTY_FORM,
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-    });
+    setQuickAddMode(quick);
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem(tradeDraftKey()) || 'null'); } catch { draft = null; }
+    setHasRestoredTradeDraft(Boolean(draft));
+    setTradeFormTouched(Boolean(draft));
+    setFormData(draft ? { ...EMPTY_FORM, ...draft, id: null } : { ...EMPTY_FORM, ...currentDateTime() });
     setIsModalOpen(true);
   };
 
+  const handleDuplicateLastTrade = () => {
+    const lastTrade = [...trades].sort((a, b) => new Date(`${b.date}T${b.time || '00:00'}`) - new Date(`${a.date}T${a.time || '00:00'}`))[0];
+    if (!lastTrade) return;
+    setQuickAddMode(false); setTradeEntryMode('standard'); setHasRestoredTradeDraft(false); setTradeFormTouched(true);
+    setFormData({ ...EMPTY_FORM, ...lastTrade, ...currentDateTime(), id: null, entry: '', stopLoss: '', takeProfit: '', exit: '', risk: '', resultR: '', commissionCost: '', spreadCost: '', notes: '', psychology: [], mistakes: [], screenshotUrl: '', plannedScreenshotUrl: '', tradingViewUrl: '', plannedTradingViewUrl: '' });
+    setIsModalOpen(true);
+  };
+
+  const handleInstallPwa = async () => {
+    if (!deferredPwaInstall) return;
+    try {
+      await deferredPwaInstall.prompt();
+      const choice = await deferredPwaInstall.userChoice;
+      if (choice?.outcome === 'accepted') setIsPwaInstalled(true);
+    } finally {
+      setDeferredPwaInstall(null);
+    }
+  };
+
+  const exportJournal = (format) => {
+    const dateStamp = getLocalDateString();
+    const safeName = (currentProfileObj.name || 'journal').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+    const fields = ['date', 'time', 'instrument', 'direction', 'setup', 'entry', 'stopLoss', 'takeProfit', 'exit', 'risk', 'resultR', 'commissionCost', 'spreadCost', 'psychology', 'mistakes', 'notes'];
+    let contents; let mime; let extension;
+    if (format === 'json') {
+      contents = JSON.stringify({ app: 'ZeroTilt', version: 1, exportedAt: new Date().toISOString(), profile: currentProfileObj, trades }, null, 2);
+      mime = 'application/json'; extension = 'json';
+    } else {
+      const quote = (value) => String.fromCharCode(34) + String(Array.isArray(value) ? value.join(String.fromCharCode(59, 32)) : value ?? String()).replaceAll(String.fromCharCode(34), String.fromCharCode(34).repeat(2)) + String.fromCharCode(34);
+      contents = String.fromCharCode(0xFEFF) + [fields.join(','), ...trades.map((trade) => fields.map((field) => quote(trade[field])).join(','))].join('\r\n');
+      mime = 'text/csv;charset=utf-8'; extension = 'csv';
+    }
+    const url = URL.createObjectURL(new Blob([contents], { type: mime }));
+    const link = document.createElement('a'); link.href = url; link.download = `zerotilt-${safeName}-${dateStamp}.${extension}`; link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const handleAddTradeOnDate = (date) => {
+    setQuickAddMode(false);
+    setHasRestoredTradeDraft(false);
+    setTradeFormTouched(false);
     setTradeEntryMode('standard');
     setFormData({
       ...EMPTY_FORM,
@@ -1217,6 +1468,9 @@ function App() {
   };
 
   const handleEditTrade = (trade) => {
+    setQuickAddMode(false);
+    setHasRestoredTradeDraft(false);
+    setTradeFormTouched(false);
     setTradeEntryMode(
       trade.plannedEntry || trade.plannedStopLoss || trade.plannedTakeProfit || trade.plannedScreenshotUrl
         || trade.plannedTradingViewUrl
@@ -1308,6 +1562,11 @@ function App() {
 
     setIsModalOpen(false);
     setFormData(EMPTY_FORM);
+    setHasRestoredTradeDraft(false);
+    setTradeFormTouched(false);
+    if (!formData.id) {
+      try { localStorage.removeItem(tradeDraftKey()); } catch { /* Trade is already saved. */ }
+    }
   };
 
   const year = currentDate.getFullYear();
@@ -1352,7 +1611,7 @@ function App() {
     ? dashboardSelectedDate
     : dashboardDefaultDate;
   const dashboardReviewTrades = (tradesByDate[dashboardReviewDate] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-  const dailyTradesPerPage = 5;
+  const dailyTradesPerPage = 3;
   const dashboardTradePages = Math.max(1, Math.ceil(dashboardReviewTrades.length / dailyTradesPerPage));
   const currentDashboardTradePage = Math.min(dashboardTradePage, dashboardTradePages);
   const paginatedDashboardTrades = dashboardReviewTrades.slice((currentDashboardTradePage - 1) * dailyTradesPerPage, currentDashboardTradePage * dailyTradesPerPage);
@@ -1371,29 +1630,6 @@ function App() {
     const totalR = tagged.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
     return { label, count: tagged.length, avgR: tagged.length ? totalR / tagged.length : 0 };
   }).filter((entry) => entry.count > 0).sort((a, b) => b.avgR - a.avgR);
-  const quickInstrumentSet = new Set(INSTRUMENT_PRESETS.flatMap((group) => group.assets));
-  const performanceCustomInstruments = [...new Set(
-    trades.map((trade) => (trade.instrument || '').trim()).filter((instrument) => instrument && !quickInstrumentSet.has(instrument))
-  )].sort();
-  const performanceTrades = trades.filter((trade) => (
-    (performanceFilters.instrument === 'all' || trade.instrument === performanceFilters.instrument) &&
-    (performanceFilters.direction === 'all' || trade.direction === performanceFilters.direction) &&
-    (performanceFilters.timeOfDay === 'all' || getTimeOfDayBucket(trade.time) === performanceFilters.timeOfDay)
-  ));
-  const performanceWins = performanceTrades.filter((trade) => (parseFloat(trade.resultR) || 0) > 0);
-  const performanceLosses = performanceTrades.filter((trade) => (parseFloat(trade.resultR) || 0) < 0);
-  const performanceTotalR = performanceTrades.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0);
-  const performanceWinRate = performanceTrades.length > 0
-    ? Math.round((performanceWins.length / performanceTrades.length) * 100)
-    : 0;
-  const performanceExpectancy = performanceTrades.length > 0
-    ? (performanceTotalR / performanceTrades.length).toFixed(2)
-    : '0.00';
-  const performanceGrossWins = performanceWins.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0);
-  const performanceGrossLosses = Math.abs(performanceLosses.reduce((total, trade) => total + (parseFloat(trade.resultR) || 0), 0));
-  const performanceProfitFactor = performanceGrossLosses > 0
-    ? (performanceGrossWins / performanceGrossLosses).toFixed(2)
-    : performanceGrossWins > 0 ? '∞' : '—';
   const selectedDayTradeList = selectedDayTrades
     ? trades.filter((trade) => trade.date === selectedDayTrades.dateStr).sort((a, b) => (a.time || '').localeCompare(b.time || ''))
     : [];
@@ -1418,11 +1654,10 @@ function App() {
     if (tradeFilters.period === '30d') cutoff.setDate(cutoff.getDate() - 30);
     if (tradeFilters.period === '90d') cutoff.setDate(cutoff.getDate() - 90);
     const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
-    const searchable = [trade.instrument, trade.setup, trade.direction, trade.notes, ...(trade.psychology || []), ...(trade.mistakes || [])]
+    const searchable = [trade.date, trade.time, trade.instrument, trade.setup, trade.direction, trade.resultR, trade.notes, ...(trade.psychology || []), ...(trade.mistakes || [])]
       .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-    return (!term || searchable.includes(term)) &&
+      .map((value) => String(value).toLowerCase());
+    return (!term || searchable.some((value) => value.includes(term))) &&
       (tradeFilters.instrument === 'all' || trade.instrument === tradeFilters.instrument) &&
       (tradeFilters.direction === 'all' || trade.direction === tradeFilters.direction) &&
       (tradeFilters.timeOfDay === 'all' || getTimeOfDayBucket(trade.time) === tradeFilters.timeOfDay) &&
@@ -1488,6 +1723,24 @@ function App() {
   const dashboardSessionGradient = dashboardSessionCount
     ? `conic-gradient(${dashboardSessionStats.map((session) => { const start = sessionAngle; sessionAngle += session.count / dashboardSessionCount * 360; return `${session.color} ${start}deg ${sessionAngle}deg`; }).join(', ')})`
     : 'conic-gradient(#1c2436 0deg 360deg)';
+
+  useEffect(() => {
+    const isTypingTarget = (target) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+    const handleShortcuts = (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || isTypingTarget(event.target)) return;
+      if (event.key === 'Escape') {
+        if (isModalOpen) setIsModalOpen(false);
+        return;
+      }
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault(); handleOpenAddModal(!event.shiftKey);
+      } else if (event.key === '/') {
+        event.preventDefault(); setActiveTab('trades'); window.setTimeout(() => searchInputRef.current?.focus(), 0);
+      }
+    };
+    window.addEventListener('keydown', handleShortcuts);
+    return () => window.removeEventListener('keydown', handleShortcuts);
+  }, [isModalOpen, activeProfileId, trades]);
 
   return (
     <div className={`app-container ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`} data-theme={theme}>
@@ -1579,6 +1832,9 @@ function App() {
           >
             <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="8" cy="8" r="1"/><circle cx="16" cy="8" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="8" cy="16" r="1"/><circle cx="16" cy="16" r="1"/></svg></span><span className="nav-label">Monte Carlo</span>
           </button>
+          <button className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')} title="Settings">
+            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.7-1.7 1-1.8-2.1-2.1-1.8 1-1.7-.7L11 2.5H8l-.7 2-1.7.7-1.8-1-2.1 2.1 1 1.8-.7 1.7-2 .7v3l2 .7.7 1.7-1 1.8 2.1 2.1 1.8-1 1.7.7.7 2h3l.7-2 1.7-.7 1.8 1 2.1-2.1-1-1.8.7-1.7 2-.7Z" transform="translate(1.8 1.7) scale(.84)"/></svg></span><span className="nav-label">Settings</span>
+          </button>
         </nav>
       </aside>
 
@@ -1595,6 +1851,7 @@ function App() {
               {activeTab === 'trades' && 'Performance Lab'}
               {activeTab === 'topdown' && 'Top Down Analysis'}
               {activeTab === 'simulator' && 'Prop Firm Monte Carlo Engine'}
+              {activeTab === 'settings' && 'Settings'}
             </h1>
           </div>
           <div className="header-actions">
@@ -1605,7 +1862,6 @@ function App() {
                   <i aria-hidden="true" />{cloudSyncState === 'ready' ? 'Cloud synced' : cloudSyncState === 'loading' ? 'Syncing…' : cloudSyncState === 'error' ? 'Sync issue' : 'Local data'}
                 </span>
                 {cloudSyncReady && pendingLocalTrades.length > 0 && <button type="button" className="cloud-import-button" onClick={handleImportLocalTrades} disabled={cloudImportBusy}>{cloudImportBusy ? 'Importing…' : `Import ${pendingLocalTrades.length} local`}</button>}
-                <button type="button" className="auth-header-button" onClick={handleAuthSignOut}>Sign out</button>
               </div>
             ) : authLoading ? (
               <span className="auth-loading-label">Checking account…</span>
@@ -1615,22 +1871,28 @@ function App() {
               </div>
             )}
 
-            <button className="theme-toggle-btn" type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
-              <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}
-            </button>
-            <button className="btn-primary" onClick={handleOpenAddModal}>
-              + Add trade
-            </button>
+            <button className="cal-btn quick-add-header-btn" type="button" onClick={() => handleOpenAddModal(true)} title="Quick add · N">Quick add <kbd>N</kbd></button>
+            <button className="cal-btn duplicate-last-header-btn" type="button" onClick={handleDuplicateLastTrade} disabled={!trades.length} title="Duplicate last trade">Duplicate last</button>
+            <button className="btn-primary" onClick={() => handleOpenAddModal(false)} title="Full trade entry · Shift+N">+ Add trade</button>
           </div>
         </header>
 
-        {tradesProfileId === activeProfileId && (!session || isProfileDataReady) && (
-          <PersonalityNudge category={personalityCategory} contextKey={personalityContextKey} />
+        {pipSqueakEnabled && activeTab === 'dashboard' && tradesProfileId === activeProfileId && (!session || isProfileDataReady) && (
+          <PersonalityNudge category={personalityCategory} contextKey={personalityContextKey} page={activeTab} />
         )}
 
         {/* DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
           <>
+            {tradesNeedingReview.length > 0 && !reviewReminderDismissed && (
+              <aside className="review-reminder" role="status">
+                <div><strong>A tiny journal nudge</strong><span>{tradesNeedingReview.length} recent {tradesNeedingReview.length === 1 ? 'trade could use' : 'trades could use'} a note or chart check-in.</span></div>
+                <div className="review-reminder-actions">
+                  <button type="button" className="cal-btn" onClick={() => handleEditTrade(tradesNeedingReview[0])}>Review latest</button>
+                  <button type="button" className="review-reminder-dismiss" onClick={dismissReviewReminder}>Later today</button>
+                </div>
+              </aside>
+            )}
             <div className="stats-grid">
               <div className="stat-card"><span className="stat-label">TOTAL R</span><div className={`stat-value ${parseFloat(totalR) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(totalR) >= 0 ? '+' : ''}{totalR}R</div><span className="stat-sub">{trades.length} recorded trades</span></div>
               <div className="stat-card"><span className="stat-label">WIN RATE</span><div className="stat-value text-white">{winRate}%</div><span className="stat-sub">{winCount} wins / {trades.length} trades</span></div>
@@ -1661,7 +1923,10 @@ function App() {
                 <select
                   aria-label="Equity graph type"
                   value={equityChartType}
-                  onChange={(e) => setEquityChartType(e.target.value)}
+                  onChange={(e) => {
+                    setEquityChartType(e.target.value);
+                    showBottomBuddyPopup('chart');
+                  }}
                   style={{ width: 'auto', minWidth: '170px' }}
                 >
                   <option value="line">Equity line</option>
@@ -1748,57 +2013,6 @@ function App() {
                 <p className="session-time-note">Asia 00:00–08:00 · London 08:00–16:00 · New York 16:00–24:00 UTC</p>
               </section>
             </div>
-            <div className="panel-card mb-6">
-              <div className="panel-header">
-                <h3>Performance Explorer</h3>
-                <p className="panel-sub">Filter your journal to compare results across instruments, directions, and entry times.</p>
-              </div>
-              <div className="performance-filter-grid mb-6">
-                <div className="form-group">
-                  <label>Instrument</label>
-                  <select value={performanceFilters.instrument} onChange={(e) => setPerformanceFilters({ ...performanceFilters, instrument: e.target.value })}>
-                    <option value="all">All instruments</option>
-                    {INSTRUMENT_PRESETS.map((group) => (
-                      <optgroup key={group.category} label={group.category}>
-                        {group.assets.map((instrument) => <option value={instrument} key={instrument}>{instrument}</option>)}
-                      </optgroup>
-                    ))}
-                    {performanceCustomInstruments.length > 0 && (
-                      <optgroup label="Custom / logged">
-                        {performanceCustomInstruments.map((instrument) => <option value={instrument} key={instrument}>{instrument}</option>)}
-                      </optgroup>
-                    )}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Direction</label>
-                  <select value={performanceFilters.direction} onChange={(e) => setPerformanceFilters({ ...performanceFilters, direction: e.target.value })}>
-                    <option value="all">Long and short</option>
-                    <option value="Long">Long</option>
-                    <option value="Short">Short</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Entry time (local)</label>
-                  <select value={performanceFilters.timeOfDay} onChange={(e) => setPerformanceFilters({ ...performanceFilters, timeOfDay: e.target.value })}>
-                    <option value="all">All times</option>
-                    <option value="00-06">00:00–05:59</option>
-                    <option value="06-12">06:00–11:59</option>
-                    <option value="12-18">12:00–17:59</option>
-                    <option value="18-24">18:00–23:59</option>
-                  </select>
-                </div>
-              </div>
-              <div className="performance-summary-grid">
-                <div className="stat-card"><span className="stat-label">MATCHING TRADES</span><div className="stat-value text-white">{performanceTrades.length}</div><span className="stat-sub">In the active profile</span></div>
-                <div className="stat-card"><span className="stat-label">WIN RATE</span><div className="stat-value text-white">{performanceWinRate}%</div><span className="stat-sub">{performanceWins.length} wins · {performanceLosses.length} losses</span></div>
-                <div className="stat-card"><span className="stat-label">NET RESULT</span><div className={`stat-value ${performanceTotalR >= 0 ? 'text-green' : 'text-red'}`}>{performanceTotalR >= 0 ? '+' : ''}{performanceTotalR.toFixed(1)}R</div><span className="stat-sub">Total across matching trades</span></div>
-                <div className="stat-card"><span className="stat-label">EXPECTANCY / TRADE</span><div className={`stat-value ${parseFloat(performanceExpectancy) >= 0 ? 'text-green' : 'text-red'}`}>{parseFloat(performanceExpectancy) >= 0 ? '+' : ''}{performanceExpectancy}R</div><span className="stat-sub">Profit factor: {performanceProfitFactor}</span></div>
-              </div>
-              {performanceTrades.length === 0 && (
-                <p className="panel-sub mt-4">No trades match these filters in this profile.</p>
-              )}
-            </div>
           </>
         )}
 
@@ -1840,6 +2054,9 @@ function App() {
                     <button onClick={() => changeMonth(-1)} className="cal-btn" aria-label="Previous month">◄</button>
                     <button onClick={() => { setCurrentDate(new Date()); setDashboardSelectedDate(todayKey); setDashboardTradePage(1); }} className="cal-btn">Today</button>
                     <button onClick={() => changeMonth(1)} className="cal-btn" aria-label="Next month">►</button>
+                    <label className="calendar-jump" title="Jump to month">
+                      <span>Jump</span><input type="month" value={dashboardMonthPrefix} onChange={(event) => { if (!event.target.value) return; const [jumpYear, jumpMonth] = event.target.value.split('-').map(Number); setCurrentDate(new Date(jumpYear, jumpMonth - 1, 1)); setDashboardTradePage(1); }} aria-label="Jump to calendar month" />
+                    </label>
                   </div>
                 </div>
                 <div className="journal-review-calendar" role="grid" aria-label={`${monthNames[month]} ${year} trading results`}>
@@ -2004,9 +2221,14 @@ function App() {
                 <h3>Recent matching trades</h3>
                 <p className="panel-sub">Showing {filteredTrades.length} of {trades.length} logged trades · Total logged costs: ${totalLoggedTradeCosts.toFixed(2)}</p>
               </div>
+              <div className="trade-data-actions">
+                <button type="button" className="cal-btn" onClick={() => exportJournal('csv')} disabled={!trades.length}>Export CSV</button>
+                <button type="button" className="cal-btn" onClick={() => exportJournal('json')} disabled={!trades.length}>Backup JSON</button>
+              </div>
               <input
+                ref={searchInputRef}
                 type="text"
-                placeholder="Search instrument or custom name, setup, notes..."
+                placeholder="Search assets, dates, results, setups, notes... ( / )"
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setTradePage(1); }}
                 className="trades-search-input"
@@ -2637,6 +2859,19 @@ function App() {
           </div>
         )}
 
+        {activeTab === 'settings' && (
+          <div className="settings-page">
+            <div className="settings-grid">
+              <section className="panel-card settings-card"><div className="panel-header"><h3>Appearance</h3><p className="panel-sub">Choose the look that feels right for your session.</p></div><div className="settings-row"><div><strong>Color theme</strong><span>Saved automatically on this device.</span></div><div className="theme-choice-group" role="group" aria-label="Color theme"><button type="button" className={`theme-choice-button ${theme === 'dark' ? 'selected' : ''}`} aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}><span aria-hidden="true">◐</span> Dark</button><button type="button" className={`theme-choice-button ${theme === 'light' ? 'selected' : ''}`} aria-pressed={theme === 'light'} onClick={() => setTheme('light')}><span aria-hidden="true">☼</span> Light</button></div></div></section>
+              <section className="panel-card settings-card pip-squeak-settings-card"><div className="panel-header"><h3>Pip Squeak</h3><p className="panel-sub">Choose whether your trading pal chimes in around ZeroTilt.</p></div><div className="settings-row"><div><strong>Buddy messages</strong><span>Page quips, bottom pop-ups, and the rare calendar prank.</span></div><label className="pip-squeak-toggle"><input type="checkbox" checked={pipSqueakEnabled} onChange={(event) => setPipSqueakEnabled(event.target.checked)} aria-label="Enable Pip Squeak" /><span className="pip-squeak-toggle-track" aria-hidden="true"><span /></span><span className="pip-squeak-toggle-state">{pipSqueakEnabled ? 'On' : 'Off'}</span></label></div></section>
+              <section className="panel-card settings-card"><div className="panel-header"><h3>Keyboard shortcuts</h3><p className="panel-sub">Little time-savers for your daily flow.</p></div><div className="shortcut-list"><div className="shortcut-row"><span>Quick add a trade</span><kbd>N</kbd></div><div className="shortcut-row"><span>Open the full trade form</span><kbd>Shift + N</kbd></div><div className="shortcut-row"><span>Search your trades</span><kbd>/</kbd></div><div className="shortcut-row"><span>Close the trade form</span><kbd>Esc</kbd></div></div></section>
+              <section className="panel-card settings-card"><div className="panel-header"><h3>Account</h3><p className="panel-sub">Sign-in and cloud sync for your journal.</p></div>{session ? <><div className="settings-account-details"><span>Signed in as</span><strong>{session.user.email}</strong><span className={`cloud-sync-indicator ${cloudSyncState}`} role="status"><i aria-hidden="true" />{cloudSyncState === 'ready' ? 'Cloud synced' : cloudSyncState === 'loading' ? 'Syncing…' : cloudSyncState === 'error' ? 'Sync issue' : 'Local data'}</span></div>{cloudSyncMessage && <p className="settings-sync-message">{cloudSyncMessage}</p>}{cloudSyncReady && pendingLocalTrades.length > 0 && <button type="button" className="cloud-import-button" onClick={handleImportLocalTrades} disabled={cloudImportBusy}>{cloudImportBusy ? 'Importing…' : `Import ${pendingLocalTrades.length} local trades`}</button>}<button type="button" className="auth-header-button settings-signout-button" onClick={handleAuthSignOut}>Sign out</button></> : <div className="settings-signed-out"><p>You’re using ZeroTilt on this device. Sign in to sync your journal across devices.</p><button type="button" className="auth-header-button" onClick={() => openAuthModal('signin')}>Email sign in</button></div>}</section>
+              <section className="panel-card settings-card"><div className="panel-header"><h3>Journal profiles</h3><p className="panel-sub">Keep personal, evaluation, and strategy journals organized.</p></div><div className="settings-row"><div><strong>{currentProfileObj.name}</strong><span>{profiles.length} {profiles.length === 1 ? 'profile' : 'profiles'} available</span></div><button type="button" className="cal-btn" onClick={() => setIsProfileModalOpen(true)}>Manage profiles</button></div></section>
+              <section className="panel-card settings-card"><div className="panel-header"><h3>Journal data</h3><p className="panel-sub">Download a copy of this profile from the Trades page.</p></div><button type="button" className="cal-btn" onClick={() => setActiveTab('trades')}>Go to exports <span aria-hidden="true">→</span></button></section>
+              <section className="panel-card settings-card pwa-install-card"><div className="panel-header"><h3>Install ZeroTilt</h3><p className="panel-sub">Keep your journal one tap away on your phone or desktop.</p></div><div className="settings-row"><div><strong>{isPwaInstalled ? 'App installed' : 'Add to your home screen'}</strong><span>Previously loaded screens can open offline; cloud sync needs internet.</span></div>{isPwaInstalled ? <span className="pwa-install-status">Installed</span> : deferredPwaInstall ? <button type="button" className="btn-primary pwa-install-button" onClick={handleInstallPwa}>Install app</button> : <span className="pwa-install-guidance">{/iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'Share → Add to Home Screen' : 'Use your browser menu → Install app'}</span>}</div></section>
+            </div>
+          </div>
+        )}
       </main>
 
       {isAuthModalOpen && (
@@ -2829,7 +3064,27 @@ function App() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="modal-form">
+            {hasRestoredTradeDraft && !formData.id && (
+              <div className="draft-restored-note" role="status">Draft restored — your unfinished entry is back.</div>
+            )}
+            {quickAddMode && !formData.id ? (
+              <form onSubmit={handleSubmit} onChange={() => setTradeFormTouched(true)} className="modal-form quick-trade-form">
+                <div className="form-row">
+                  <div className="form-group"><label>Date</label><input type="date" required value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} /></div>
+                  <div className="form-group"><label>Time</label><input type="time" required value={formData.time} onChange={(e) => setFormData({ ...formData, time: e.target.value })} /></div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group"><label>Asset</label><input autoFocus required value={formData.instrument} onChange={(e) => setFormData({ ...formData, instrument: e.target.value })} placeholder="NQ, ES, BTC..." /></div>
+                  <div className="form-group"><label>Direction</label><select value={formData.direction} onChange={(e) => setFormData({ ...formData, direction: e.target.value })}><option>Long</option><option>Short</option></select></div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group"><label>Result (R)</label><input type="number" step="any" required value={formData.resultR} onChange={(e) => setFormData({ ...formData, resultR: e.target.value })} placeholder="e.g. 1.5 or -1" /></div>
+                  <div className="form-group"><label>Setup <span className="mistake-optional-label">Optional</span></label><input value={formData.setup} onChange={(e) => setFormData({ ...formData, setup: e.target.value })} placeholder="e.g. 15m S/R" /></div>
+                </div>
+                <div className="quick-form-footer"><span>More detail can be added later by editing the trade.</span><button type="submit" className="btn-primary">Save quick trade</button></div>
+              </form>
+            ) : (
+            <form onSubmit={handleSubmit} onChange={() => setTradeFormTouched(true)} className="modal-form">
               <div className="form-row">
                 <div className="form-group">
                   <label>Date</label>
@@ -3107,6 +3362,7 @@ function App() {
                 {formData.id ? 'Update Trade' : 'Save Trade'}
               </button>
             </form>
+            )}
           </div>
         </div>
       )}
@@ -3246,6 +3502,19 @@ function App() {
           </div>
         </div>
       )}
+      {pipSqueakEnabled && bottomBuddyPopup && (
+        <aside className="bottom-buddy-popup" role="status" aria-live="polite">
+          <span className="bottom-buddy-popup-icon" aria-hidden="true">✳</span>
+          <div>
+            <span className="bottom-buddy-popup-label">PIP SQUEAK</span>
+            <p>{bottomBuddyPopup}</p>
+            {mindsetPrankStep >= 0 && mindsetPrankStep < 3 && (
+              <button type="button" className="bottom-buddy-prank-action" onClick={advanceCalendarMindsetPrank}>Mindset</button>
+            )}
+          </div>
+          <button type="button" onClick={() => { window.clearTimeout(bottomBuddyTimer.current); setBottomBuddyPopup(''); setMindsetPrankStep(-1); }} aria-label="Dismiss buddy message">×</button>
+        </aside>
+      )}
     </div>
   );
 }
@@ -3255,3 +3524,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <App />
   </React.StrictMode>
 );
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.warn('ZeroTilt could not register its offline app shell.', error);
+    });
+  });
+}
