@@ -48,7 +48,7 @@ self.addEventListener('fetch', (event) => {
       } catch {
         const cached = await cache.match(request);
         if (cached) return cached;
-        throw new Error('This ZeroTilt resource is not available offline yet.');
+        throw new Error('This CookurTrades resource is not available offline yet.');
       }
     }));
   }

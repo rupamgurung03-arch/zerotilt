@@ -35,6 +35,78 @@ const DEFAULT_PROFILES = [
 
 const DEFAULT_TRADE_FILTERS = { instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' };
 const DEFAULT_TRADE_DEFAULTS = { instrument: 'NQ', direction: 'Long', setup: '15m S/R', risk: '' };
+const TIME_ZONE_OPTIONS = typeof Intl.supportedValuesOf === 'function'
+  ? [...new Set(['UTC', ...Intl.supportedValuesOf('timeZone')])]
+  : ['UTC', 'Asia/Kolkata', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Paris', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Australia/Sydney'];
+
+function isValidTimeZone(timeZone) {
+  try { new Intl.DateTimeFormat('en-US', { timeZone }).format(); return true; } catch { return false; }
+}
+
+function getDeviceTimeZone() {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return isValidTimeZone(timeZone) ? timeZone : 'UTC';
+}
+
+function getZonedDateTimeParts(date = new Date(), timeZone = getDeviceTimeZone()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+}
+
+function getZonedDateString(date = new Date(), timeZone = getDeviceTimeZone()) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getZonedTimeString(date = new Date(), timeZone = getDeviceTimeZone()) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  return `${parts.hour}:${parts.minute}`;
+}
+
+function getZonedDateTime(date = new Date(), timeZone = getDeviceTimeZone()) {
+  return { date: getZonedDateString(date, timeZone), time: getZonedTimeString(date, timeZone), timeZone };
+}
+
+function zonedWallTimeToDate(dateString, timeString, timeZone = getDeviceTimeZone()) {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateString || ''));
+  const timeMatch = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(String(timeString || ''));
+  if (!dateMatch || !timeMatch || !isValidTimeZone(timeZone)) return new Date(NaN);
+  const [, year, month, day] = dateMatch;
+  const [, hour, minute, second = '0'] = timeMatch;
+  const targetUtc = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  let guess = targetUtc;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = getZonedDateTimeParts(new Date(guess), timeZone);
+    const representedUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(second));
+    const correction = representedUtc - guess;
+    if (correction === 0) break;
+    guess = targetUtc - correction;
+  }
+  return new Date(guess);
+}
+
+function getTradeInstant(trade, fallbackTimeZone = getDeviceTimeZone()) {
+  if (trade?._timestamp) {
+    const savedInstant = new Date(trade._timestamp);
+    if (!Number.isNaN(savedInstant.getTime())) return savedInstant;
+  }
+  return zonedWallTimeToDate(trade?.date, trade?.time || '00:00', trade?.timeZone || fallbackTimeZone);
+}
+
+function getUtcOffsetLabel(timeZone, date = new Date()) {
+  const value = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
+    .formatToParts(date).find((part) => part.type === 'timeZoneName')?.value || 'GMT';
+  return value.replace(/^GMT/, 'UTC');
+}
+
+function getTimeZoneCity(timeZone) {
+  if (timeZone === 'Asia/Kolkata' || timeZone === 'Asia/Calcutta') return 'Calcutta';
+  return timeZone === 'UTC' ? 'UTC' : String(timeZone || '').split('/').at(-1).replaceAll('_', ' ');
+}
 
 const EMPTY_FORM = {
   id: null,
@@ -63,8 +135,8 @@ const EMPTY_FORM = {
   notes: '',
 };
 
-function getLocalGreeting() {
-  const hour = new Date().getHours();
+function getLocalGreeting(timeZone = getDeviceTimeZone()) {
+  const hour = Number(getZonedTimeString(new Date(), timeZone).slice(0, 2));
   if (hour < 12) return 'Good morning.';
   if (hour < 18) return 'Good afternoon.';
   return 'Good evening.';
@@ -118,6 +190,8 @@ function journalTradeToDatabaseRow(trade, userId, profileId) {
   delete fullTrade.notes;
   delete fullTrade._localTradeId;
   delete fullTrade._profileId;
+  delete fullTrade._timestamp;
+  delete fullTrade._timestampChanged;
   ['screenshotUrl', 'plannedScreenshotUrl'].forEach((field) => {
     if (String(fullTrade[field] || '').startsWith('data:')) fullTrade[field] = '';
   });
@@ -136,8 +210,11 @@ function journalTradeToDatabaseRow(trade, userId, profileId) {
   const resultR = parseNumeric(trade.resultR);
   const executionCosts = (parseNumeric(trade.commissionCost) || 0) + (parseNumeric(trade.spreadCost) || 0);
   const pnl = risk === null || resultR === null ? null : (risk * resultR) - executionCosts;
-  const tradeDate = trade.date && trade.time
-    ? new Date(`${trade.date}T${trade.time.length === 5 ? `${trade.time}:00` : trade.time}`)
+  const preservedTimestamp = trade._timestamp && !trade._timestampChanged ? new Date(trade._timestamp) : null;
+  const tradeDate = preservedTimestamp && !Number.isNaN(preservedTimestamp.getTime())
+    ? preservedTimestamp
+    : trade.date && trade.time
+    ? zonedWallTimeToDate(trade.date, trade.time, trade.timeZone || getDeviceTimeZone())
     : trade.date ? new Date(`${trade.date}T12:00:00`) : new Date();
   const row = {
     user_id: userId,
@@ -153,13 +230,13 @@ function journalTradeToDatabaseRow(trade, userId, profileId) {
   return row;
 }
 
-function databaseRowToJournalTrade(row) {
+function databaseRowToJournalTrade(row, displayTimeZone = getDeviceTimeZone()) {
   const { notes, metadata } = splitStoredTradeNotes(row.notes || '');
   const trade = metadata?.trade || {};
   const createdAt = row.created_at ? new Date(row.created_at) : new Date();
-  const date = !Number.isNaN(createdAt.getTime()) ? getLocalDateString(createdAt) : getLocalDateString();
+  const date = !Number.isNaN(createdAt.getTime()) ? getZonedDateString(createdAt, displayTimeZone) : getLocalDateString();
   const time = !Number.isNaN(createdAt.getTime())
-    ? `${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`
+    ? getZonedTimeString(createdAt, displayTimeZone)
     : '';
   const parsedPnl = Number.parseFloat(row.pnl);
   const parsedRisk = Number.parseFloat(trade.risk);
@@ -169,8 +246,10 @@ function databaseRowToJournalTrade(row) {
     id: row.id,
     _localTradeId: metadata?.localTradeId || row.id,
     _profileId: metadata?.profileId || 'default',
-    date: trade.date || date,
-    time: trade.time || time,
+    _timestamp: !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : null,
+    date,
+    time,
+    timeZone: displayTimeZone,
     instrument: row.symbol || trade.instrument || '',
     direction: row.trade_type === 'SELL' ? 'Short' : row.trade_type === 'BUY' ? 'Long' : (trade.direction || 'Long'),
     entry: row.entry_price ?? trade.entry ?? '',
@@ -351,6 +430,13 @@ function App() {
     const saved = localStorage.getItem('tradelog_active_profile');
     return saved || 'default';
   });
+  const [journalTimezone, setJournalTimezone] = useState(() => {
+    const profileId = localStorage.getItem('tradelog_active_profile') || 'default';
+    const saved = localStorage.getItem(`zerotilt_journal_timezone_guest_${profileId}`);
+    return isValidTimeZone(saved) ? saved : getDeviceTimeZone();
+  });
+  const [journalClockNow, setJournalClockNow] = useState(() => new Date());
+  const [timezoneSyncMessage, setTimezoneSyncMessage] = useState('');
 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
@@ -398,7 +484,7 @@ function App() {
   const [tradeDefaults, setTradeDefaults] = useState(() => {
     try { return { ...DEFAULT_TRADE_DEFAULTS, ...JSON.parse(localStorage.getItem('zerotilt_trade_defaults_v1') || '{}') }; } catch { return DEFAULT_TRADE_DEFAULTS; }
   });
-  const [greeting, setGreeting] = useState(getLocalGreeting);
+  const [greeting, setGreeting] = useState(() => getLocalGreeting(journalTimezone));
   const [equityChartType, setEquityChartType] = useState('line');
   const [bottomBuddyPopup, setBottomBuddyPopup] = useState('');
   const [pipSqueakEnabled, setPipSqueakEnabled] = useState(() => {
@@ -532,9 +618,15 @@ function App() {
   }, [selectedDayTrades?.dateStr]);
 
   useEffect(() => {
-    const greetingTimer = setInterval(() => setGreeting(getLocalGreeting()), 60_000);
+    const updateJournalClock = () => {
+      const now = new Date();
+      setJournalClockNow(now);
+      setGreeting(getLocalGreeting(journalTimezone));
+    };
+    updateJournalClock();
+    const greetingTimer = setInterval(updateJournalClock, 30_000);
     return () => clearInterval(greetingTimer);
-  }, []);
+  }, [journalTimezone]);
 
   useEffect(() => {
     const handleBeforeInstall = (event) => {
@@ -562,6 +654,43 @@ function App() {
   useEffect(() => {
     localStorage.setItem('tradelog_profiles', JSON.stringify(profiles));
   }, [profiles]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    const storageKey = userId
+      ? `zerotilt_journal_timezone_user_${userId}`
+      : `zerotilt_journal_timezone_guest_${activeProfileId}`;
+    try {
+      if (userId) {
+        const accountTimezone = session.user.user_metadata?.journal_timezone;
+        if (isValidTimeZone(accountTimezone)) {
+          setJournalTimezone(accountTimezone);
+          localStorage.setItem(storageKey, accountTimezone);
+          setTimezoneSyncMessage('Synced with your account.');
+          return;
+        }
+        const localTimezone = localStorage.getItem(storageKey);
+        const initialTimezone = isValidTimeZone(localTimezone) ? localTimezone : journalTimezone;
+        setJournalTimezone(initialTimezone);
+        supabase.auth.updateUser({ data: { journal_timezone: initialTimezone } }).then(({ error }) => {
+          setTimezoneSyncMessage(error ? 'Saved on this device; account sync needs attention.' : 'Synced with your account.');
+        }).catch(() => setTimezoneSyncMessage('Saved on this device; account sync needs attention.'));
+        return;
+      }
+      const localTimezone = localStorage.getItem(storageKey);
+      if (isValidTimeZone(localTimezone)) setJournalTimezone(localTimezone);
+      setTimezoneSyncMessage('Saved on this device.');
+    } catch {
+      setTimezoneSyncMessage('Saved for this session.');
+    }
+  }, [session?.user?.id, activeProfileId]);
+
+  useEffect(() => {
+    const storageKey = session?.user?.id
+      ? `zerotilt_journal_timezone_user_${session.user.id}`
+      : `zerotilt_journal_timezone_guest_${activeProfileId}`;
+    try { localStorage.setItem(storageKey, journalTimezone); } catch { /* Timezone remains active for this visit. */ }
+  }, [journalTimezone, activeProfileId, session?.user?.id]);
 
   useEffect(() => {
     try { localStorage.setItem('zerotilt_custom_assets_v1', JSON.stringify(customAssets)); } catch { /* Keep symbols for this session if storage is unavailable. */ }
@@ -680,7 +809,7 @@ function App() {
         if (error) throw error;
         if (cancelled) return;
 
-        const demoRows = (data || []).filter((row) => isDemoTrade(databaseRowToJournalTrade(row)));
+        const demoRows = (data || []).filter((row) => isDemoTrade(databaseRowToJournalTrade(row, journalTimezone)));
         if (demoRows.length) {
           const { error: deleteDemoError } = await supabase
             .from('trades')
@@ -689,7 +818,7 @@ function App() {
             .in('id', demoRows.map((row) => row.id));
           if (deleteDemoError) throw deleteDemoError;
         }
-        const allUserTrades = (data || []).filter((row) => !demoRows.some((demoRow) => demoRow.id === row.id)).map(databaseRowToJournalTrade);
+        const allUserTrades = (data || []).filter((row) => !demoRows.some((demoRow) => demoRow.id === row.id)).map((row) => databaseRowToJournalTrade(row, journalTimezone));
         const matchingProfileTrades = allUserTrades.filter((trade) => trade._profileId === activeProfileId);
         // The Main Account is the default view on a fresh browser profile. If its local
         // profile list has not been created there yet, show this signed-in user's cloud
@@ -730,7 +859,7 @@ function App() {
 
     loadCloudTrades();
     return () => { cancelled = true; };
-  }, [session?.user?.id, activeProfileId, profiles.length]);
+  }, [session?.user?.id, activeProfileId, profiles.length, journalTimezone]);
 
   useEffect(() => {
     try {
@@ -800,10 +929,10 @@ function App() {
 
   useEffect(() => {
     const dismissedForToday = () => {
-      try { return localStorage.getItem(`tradelog_review_reminder_${activeProfileId}`) === getLocalDateString(); } catch { return false; }
+      try { return localStorage.getItem(`tradelog_review_reminder_${activeProfileId}`) === getZonedDateString(new Date(), journalTimezone); } catch { return false; }
     };
     setReviewReminderDismissed(dismissedForToday());
-  }, [activeProfileId]);
+  }, [activeProfileId, journalTimezone]);
 
   // Auto-Calculate R-Multiple
   useEffect(() => {
@@ -833,7 +962,7 @@ function App() {
   const auraDisciplineRate = trades.length ? Math.round((auraCleanTrades / trades.length) * 100) : 0;
   const auraProfitRate = winRate;
   const auraPoints = trades.length ? Math.round(((auraDisciplineRate + auraProfitRate) / 2) * 10) : 0;
-  const todayKey = getLocalDateString();
+  const todayKey = getZonedDateString(new Date(), journalTimezone);
   const todayTrades = trades.filter((trade) => trade.date === todayKey);
   const todayNetR = todayTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
   const todayHasRevengeTag = todayTrades.some((trade) => (trade.psychology || []).includes('Revenge Trade'));
@@ -849,7 +978,7 @@ function App() {
       ? reviewedNoSetupDisplay.reviewed
       : readNoSetupReview(activeProfileId, todayKey)
   );
-  const chronologicalTrades = [...trades].sort((a, b) => new Date(`${a.date}T${a.time || '00:00'}`) - new Date(`${b.date}T${b.time || '00:00'}`));
+  const chronologicalTrades = [...trades].sort((a, b) => getTradeInstant(a, journalTimezone) - getTradeInstant(b, journalTimezone));
   const latestJournalDate = chronologicalTrades[chronologicalTrades.length - 1]?.date || '';
   const inactiveForBusinessDays = countBusinessDaysSince(latestJournalDate, todayKey);
   let currentLosingStreak = 0;
@@ -876,11 +1005,11 @@ function App() {
   const setBestMonthToday = todayTrades.length > 0 && currentMonthNetR > bestPreviousMonthR;
   const tradesNeedingReview = [...trades]
     .filter((trade) => !String(trade.notes || '').trim() || !(trade.screenshotUrl || trade.tradingViewUrl || trade.plannedScreenshotUrl || trade.plannedTradingViewUrl))
-    .sort((a, b) => new Date(`${b.date}T${b.time || '00:00'}`) - new Date(`${a.date}T${a.time || '00:00'}`))
+    .sort((a, b) => getTradeInstant(b, journalTimezone) - getTradeInstant(a, journalTimezone))
     .slice(0, 3);
   const dismissReviewReminder = () => {
     setReviewReminderDismissed(true);
-    try { localStorage.setItem(`tradelog_review_reminder_${activeProfileId}`, getLocalDateString()); } catch { /* Dismiss for this view. */ }
+    try { localStorage.setItem(`tradelog_review_reminder_${activeProfileId}`, getZonedDateString(new Date(), journalTimezone)); } catch { /* Dismiss for this view. */ }
   };
   const missingTodayEvidence = todayTrades.length > 0 && todayTrades.every((trade) => (
     !String(trade.notes || '').trim() && !trade.screenshotUrl && !trade.tradingViewUrl && !trade.plannedScreenshotUrl && !trade.plannedTradingViewUrl
@@ -929,7 +1058,7 @@ function App() {
   const lossRateDec = trades.length > 0 ? losingTrades.length / trades.length : 0;
   const expectancyR = ((winRateDec * parseFloat(avgWinR)) - (lossRateDec * Math.abs(parseFloat(avgLossR)))).toFixed(2);
 
-  const sortedTradesForEquity = [...trades].sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
+  const sortedTradesForEquity = [...trades].sort((a, b) => getTradeInstant(a, journalTimezone) - getTradeInstant(b, journalTimezone));
   let maxConsecutiveWins = 0;
   let currentConsecutiveWins = 0;
   let maxConsecutiveLosses = 0;
@@ -1479,7 +1608,35 @@ function App() {
     }
   };
 
-  const currentDateTime = () => ({ date: getLocalDateString(), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) });
+  const currentDateTime = () => getZonedDateTime(new Date(), journalTimezone);
+  const handleJournalTimezoneChange = async (event) => {
+    const nextTimezone = event.target.value;
+    if (!isValidTimeZone(nextTimezone)) return;
+    const rezoneTrade = (trade) => {
+      const instant = getTradeInstant(trade, journalTimezone);
+      if (Number.isNaN(instant.getTime())) return { ...trade, timeZone: nextTimezone };
+      return { ...trade, ...getZonedDateTime(instant, nextTimezone), _timestamp: instant.toISOString(), _timestampChanged: false };
+    };
+    setTrades((current) => current.map(rezoneTrade));
+    setPendingLocalTrades((current) => current.map(rezoneTrade));
+    setJournalTimezone(nextTimezone);
+    setJournalClockNow(new Date());
+    const storageKey = session?.user?.id
+      ? `zerotilt_journal_timezone_user_${session.user.id}`
+      : `zerotilt_journal_timezone_guest_${activeProfileId}`;
+    try { localStorage.setItem(storageKey, nextTimezone); } catch { /* Keep the selection active for this visit. */ }
+    if (!session?.user?.id) {
+      setTimezoneSyncMessage('Saved on this device.');
+      return;
+    }
+    setTimezoneSyncMessage('Saving to your account…');
+    try {
+      const { error } = await supabase.auth.updateUser({ data: { journal_timezone: nextTimezone } });
+      setTimezoneSyncMessage(error ? 'Saved on this device; account sync needs attention.' : 'Synced with your account.');
+    } catch {
+      setTimezoneSyncMessage('Saved on this device; account sync needs attention.');
+    }
+  };
   const tradeDraftKey = (profileId = activeProfileId) => `tradelog_trade_draft_${profileId}`;
 
   const handleOpenAddModal = (quick = false) => {
@@ -1489,15 +1646,17 @@ function App() {
     try { draft = JSON.parse(localStorage.getItem(tradeDraftKey()) || 'null'); } catch { draft = null; }
     setHasRestoredTradeDraft(Boolean(draft));
     setTradeFormTouched(Boolean(draft));
-    setFormData(draft ? { ...EMPTY_FORM, ...tradeDefaults, ...draft, id: null } : { ...EMPTY_FORM, ...tradeDefaults, ...currentDateTime() });
+    setFormData(draft
+      ? { ...EMPTY_FORM, ...tradeDefaults, ...currentDateTime(), ...draft, timeZone: draft.timeZone || journalTimezone, id: null }
+      : { ...EMPTY_FORM, ...tradeDefaults, ...currentDateTime() });
     setIsModalOpen(true);
   };
 
   const handleDuplicateLastTrade = () => {
-    const lastTrade = [...trades].sort((a, b) => new Date(`${b.date}T${b.time || '00:00'}`) - new Date(`${a.date}T${a.time || '00:00'}`))[0];
+    const lastTrade = [...trades].sort((a, b) => getTradeInstant(b, journalTimezone) - getTradeInstant(a, journalTimezone))[0];
     if (!lastTrade) return;
     setQuickAddMode(false); setTradeEntryMode('standard'); setHasRestoredTradeDraft(false); setTradeFormTouched(true);
-    setFormData({ ...EMPTY_FORM, ...lastTrade, ...currentDateTime(), id: null, entry: '', stopLoss: '', takeProfit: '', exit: '', risk: '', resultR: '', commissionCost: '', spreadCost: '', notes: '', psychology: [], mistakes: [], screenshotUrl: '', plannedScreenshotUrl: '', tradingViewUrl: '', plannedTradingViewUrl: '' });
+    setFormData({ ...EMPTY_FORM, ...lastTrade, ...currentDateTime(), timeZone: journalTimezone, _timestamp: null, _timestampChanged: true, id: null, entry: '', stopLoss: '', takeProfit: '', exit: '', risk: '', resultR: '', commissionCost: '', spreadCost: '', notes: '', psychology: [], mistakes: [], screenshotUrl: '', plannedScreenshotUrl: '', tradingViewUrl: '', plannedTradingViewUrl: '' });
     setIsModalOpen(true);
   };
 
@@ -1513,20 +1672,20 @@ function App() {
   };
 
   const exportJournal = (format) => {
-    const dateStamp = getLocalDateString();
+    const dateStamp = getZonedDateString(new Date(), journalTimezone);
     const safeName = (currentProfileObj.name || 'journal').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
-    const fields = ['date', 'time', 'instrument', 'direction', 'setup', 'entry', 'stopLoss', 'takeProfit', 'exit', 'risk', 'resultR', 'commissionCost', 'spreadCost', 'psychology', 'mistakes', 'notes'];
+    const fields = ['date', 'time', 'timeZone', 'timestampUTC', 'instrument', 'direction', 'setup', 'entry', 'stopLoss', 'takeProfit', 'exit', 'risk', 'resultR', 'commissionCost', 'spreadCost', 'psychology', 'mistakes', 'notes'];
     let contents; let mime; let extension;
     if (format === 'json') {
-      contents = JSON.stringify({ app: 'ZeroTilt', version: 1, exportedAt: new Date().toISOString(), profile: currentProfileObj, trades }, null, 2);
+      contents = JSON.stringify({ app: 'CookurTrades', version: 1, exportedAt: new Date().toISOString(), journalTimezone, profile: currentProfileObj, trades }, null, 2);
       mime = 'application/json'; extension = 'json';
     } else {
       const quote = (value) => String.fromCharCode(34) + String(Array.isArray(value) ? value.join(String.fromCharCode(59, 32)) : value ?? String()).replaceAll(String.fromCharCode(34), String.fromCharCode(34).repeat(2)) + String.fromCharCode(34);
-      contents = String.fromCharCode(0xFEFF) + [fields.join(','), ...trades.map((trade) => fields.map((field) => quote(trade[field])).join(','))].join('\r\n');
+      contents = String.fromCharCode(0xFEFF) + [fields.join(','), ...trades.map((trade) => fields.map((field) => quote(field === 'timestampUTC' ? (trade._timestamp || getTradeInstant(trade, journalTimezone).toISOString()) : trade[field])).join(','))].join('\r\n');
       mime = 'text/csv;charset=utf-8'; extension = 'csv';
     }
     const url = URL.createObjectURL(new Blob([contents], { type: mime }));
-    const link = document.createElement('a'); link.href = url; link.download = `zerotilt-${safeName}-${dateStamp}.${extension}`; link.click();
+    const link = document.createElement('a'); link.href = url; link.download = `cookurtrades-${safeName}-${dateStamp}.${extension}`; link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
@@ -1537,8 +1696,8 @@ function App() {
     setTradeEntryMode('standard');
     setFormData({
       ...EMPTY_FORM,
+      ...currentDateTime(),
       date,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
     });
     setIsModalOpen(true);
   };
@@ -1599,10 +1758,16 @@ function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const entryTimestamp = formData._timestamp && !formData._timestampChanged
+      ? formData._timestamp
+      : zonedWallTimeToDate(formData.date, formData.time, formData.timeZone || journalTimezone).toISOString();
     let tradeToSave = {
       ...formData,
       ...(formData.id ? {} : { id: Date.now().toString() }),
       resultR: parseFloat(formData.resultR) || 0,
+      timeZone: formData.timeZone || journalTimezone,
+      _timestamp: entryTimestamp,
+      _timestampChanged: false,
     };
 
     if (session?.user?.id && cloudSyncReady) {
@@ -1614,7 +1779,7 @@ function App() {
           ? await supabase.from('trades').upsert(row, { onConflict: 'id' }).select('*').single()
           : await supabase.from('trades').insert(row).select('*').single();
         if (result.error) throw result.error;
-        tradeToSave = databaseRowToJournalTrade(result.data);
+        tradeToSave = databaseRowToJournalTrade(result.data, journalTimezone);
         const syncedLocalId = String(tradeToSave._localTradeId || tradeToSave.id);
         setPendingLocalTrades((current) => current.filter((trade) => String(trade._localTradeId || trade.id) !== syncedLocalId));
         setCloudSyncState('ready');
@@ -1682,7 +1847,7 @@ function App() {
   const dashboardMonthNetR = dashboardMonthTrades.reduce((sum, trade) => sum + (parseFloat(trade.resultR) || 0), 0);
   const dashboardBestDay = dashboardMonthDays.reduce((best, day) => !best || day.totalR > best.totalR ? day : best, null);
   const dashboardRedDays = dashboardMonthDays.filter((day) => day.totalR < 0).length;
-  const dashboardDefaultDate = dashboardMonthTrades[0]?.date || `${dashboardMonthPrefix}-${String(new Date().getDate()).padStart(2, '0')}`;
+  const dashboardDefaultDate = dashboardMonthTrades[0]?.date || todayKey;
   const dashboardReviewDate = dashboardSelectedDate.startsWith(`${dashboardMonthPrefix}-`)
     ? dashboardSelectedDate
     : dashboardDefaultDate;
@@ -1758,7 +1923,7 @@ function App() {
     return stats;
   }, {})).sort((a, b) => b.netR - a.netR);
   const labMaxInstrumentR = Math.max(1, ...labInstrumentStats.map((item) => Math.abs(item.netR)));
-  const labChartTrades = [...filteredTrades].sort((a, b) => new Date(`${a.date}T${a.time || '00:00'}`) - new Date(`${b.date}T${b.time || '00:00'}`));
+  const labChartTrades = [...filteredTrades].sort((a, b) => getTradeInstant(a, journalTimezone) - getTradeInstant(b, journalTimezone));
   const labChartMaxR = Math.max(1, ...labChartTrades.map((trade) => Math.abs(parseFloat(trade.resultR) || 0)));
   const tradesPerPage = 10;
   const totalTradePages = Math.max(1, Math.ceil(filteredTrades.length / tradesPerPage));
@@ -1779,16 +1944,35 @@ function App() {
     };
   }).filter((stat) => stat.count > 0);
   const sessionDefinitions = [
-    { name: 'Asia', color: '#38bdf8' },
-    { name: 'London', color: '#f59e0b' },
-    { name: 'New York', color: '#a78bfa' },
+    { name: 'Asia', color: '#38bdf8', timeZone: 'Asia/Tokyo', start: 9, end: 18 },
+    { name: 'London', color: '#f59e0b', timeZone: 'Europe/London', start: 8, end: 17 },
+    { name: 'New York', color: '#a78bfa', timeZone: 'America/New_York', start: 8, end: 17 },
   ];
-  const dashboardSessionStats = sessionDefinitions.map((session, index) => {
-    const sessionTrades = trades.filter((trade) => {
-      const entry = new Date(`${trade.date}T${trade.time || '00:00'}`);
-      const utcHour = entry.getUTCHours();
-      return index === 0 ? utcHour < 8 : index === 1 ? utcHour >= 8 && utcHour < 16 : utcHour >= 16;
+  const sessionClockFormatters = new Map(sessionDefinitions.map((definition) => [definition.name, new Intl.DateTimeFormat('en-GB', {
+    timeZone: definition.timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  })]));
+  const offSessionDefinition = { name: 'Off-session', color: '#64748b' };
+  const getSessionForTrade = (trade) => {
+      const entry = getTradeInstant(trade, journalTimezone);
+    if (Number.isNaN(entry.getTime())) return offSessionDefinition.name;
+    const activeSessions = sessionDefinitions.filter((definition) => {
+      const parts = sessionClockFormatters.get(definition.name).formatToParts(entry);
+      const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+      return hour >= definition.start && hour < definition.end;
     });
+    // During overlaps, assign the trade to the later-opening market session.
+    return (activeSessions.find((item) => item.name === 'New York')
+      || activeSessions.find((item) => item.name === 'London')
+      || activeSessions[0]
+      || offSessionDefinition).name;
+  };
+  const sessionTradeBuckets = new Map([...sessionDefinitions, offSessionDefinition].map((session) => [session.name, []]));
+  trades.forEach((trade) => sessionTradeBuckets.get(getSessionForTrade(trade)).push(trade));
+  const dashboardSessionStats = [...sessionDefinitions, offSessionDefinition].map((session) => {
+    const sessionTrades = sessionTradeBuckets.get(session.name);
     return {
       ...session,
       count: sessionTrades.length,
@@ -1826,7 +2010,7 @@ function App() {
         <div className="brand">
           <span className="dot"></span>
           <div className="brand-copy">
-            <h2 className="brand-title">ZEROTILT</h2>
+            <h2 className="brand-title">CookurTrades</h2>
             <p className="brand-sub">Personal Journal</p>
           </div>
           <button
@@ -1921,6 +2105,9 @@ function App() {
           <div>
             <span className="section-subtitle">
               JOURNAL PROFILE: <span className="text-amber">{currentProfileObj.name}</span>
+            </span>
+            <span className="journal-clock" aria-label={`Journal timezone ${getTimeZoneCity(journalTimezone)}, ${getUtcOffsetLabel(journalTimezone, journalClockNow)}`}>
+              {getTimeZoneCity(journalTimezone)} · {getUtcOffsetLabel(journalTimezone, journalClockNow)}
             </span>
             <h1 className="section-title">
               {activeTab === 'dashboard' && greeting}
@@ -2074,7 +2261,7 @@ function App() {
               <section className="panel-card session-distribution-panel">
                 <div className="panel-header">
                   <h3>Trades by session</h3>
-                  <p className="panel-sub">Entry time distribution · UTC session windows</p>
+                  <p className="panel-sub">Entry time distribution · UTC windows, DST-aware</p>
                 </div>
                 <div className="session-chart-content">
                   <div className="session-donut" style={{ background: dashboardSessionGradient }} role="img" aria-label={dashboardSessionCount ? `Session distribution across ${dashboardSessionCount} trades` : 'No trades available for session distribution'}>
@@ -2087,7 +2274,7 @@ function App() {
                     })}
                   </div>
                 </div>
-                <p className="session-time-note">Asia 00:00–08:00 · London 08:00–16:00 · New York 16:00–24:00 UTC</p>
+                <p className="session-time-note">Trade time is interpreted in {journalTimezone}. UTC windows: Asia 00:00–09:00 · London 08:00–17:00 standard / 07:00–16:00 DST · New York 13:00–22:00 standard / 12:00–21:00 DST. Overlaps count toward the later-opening session.</p>
               </section>
             </div>
           </>
@@ -2129,7 +2316,7 @@ function App() {
                   <h2>{monthNames[month]} {year}</h2>
                   <div className="calendar-controls">
                     <button onClick={() => changeMonth(-1)} className="cal-btn" aria-label="Previous month">◄</button>
-                    <button onClick={() => { setCurrentDate(new Date()); setDashboardSelectedDate(todayKey); setDashboardTradePage(1); }} className="cal-btn">Today</button>
+                    <button onClick={() => { setCurrentDate(new Date(`${todayKey}T12:00:00`)); setDashboardSelectedDate(todayKey); setDashboardTradePage(1); }} className="cal-btn">Today</button>
                     <button onClick={() => changeMonth(1)} className="cal-btn" aria-label="Next month">►</button>
                     <label className="calendar-jump" title="Jump to month">
                       <span>Jump</span><input type="month" value={dashboardMonthPrefix} onChange={(event) => { if (!event.target.value) return; const [jumpYear, jumpMonth] = event.target.value.split('-').map(Number); setCurrentDate(new Date(jumpYear, jumpMonth - 1, 1)); setDashboardTradePage(1); }} aria-label="Jump to calendar month" />
@@ -2940,17 +3127,22 @@ function App() {
           <div className="settings-page">
             <div className="settings-grid">
               <div className="settings-column">
-                <section className="panel-card settings-card"><div className="panel-header"><h3>Appearance</h3><p className="panel-sub">Choose the look that feels right for your session.</p></div><div className="settings-row"><div><strong>Color theme</strong><span>Saved automatically on this device.</span></div><div className="theme-choice-group" role="group" aria-label="Color theme"><button type="button" className={`theme-choice-button ${theme === 'dark' ? 'selected' : ''}`} aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}><span aria-hidden="true">◐</span> Dark</button><button type="button" className={`theme-choice-button ${theme === 'light' ? 'selected' : ''}`} aria-pressed={theme === 'light'} onClick={() => setTheme('light')}><span aria-hidden="true">☼</span> Light</button></div></div></section>
-                <section className="panel-card settings-card pip-squeak-settings-card"><div className="panel-header"><h3>Pip Squeak</h3><p className="panel-sub">Choose whether your trading pal chimes in around ZeroTilt.</p></div><div className="settings-row"><div><strong>Buddy messages</strong><span>Page quips, bottom pop-ups, and the rare calendar prank.</span></div><label className="pip-squeak-toggle"><input type="checkbox" checked={pipSqueakEnabled} onChange={(event) => setPipSqueakEnabled(event.target.checked)} aria-label="Enable Pip Squeak" /><span className="pip-squeak-toggle-track" aria-hidden="true"><span /></span><span className="pip-squeak-toggle-state">{pipSqueakEnabled ? 'On' : 'Off'}</span></label></div></section>
+                <section className="panel-card settings-card">
+                  <div className="panel-header"><h3>Appearance</h3><p className="panel-sub">Choose the look and time zone for your journal.</p></div>
+                  <div className="settings-row"><div><strong>Color theme</strong><span>Saved automatically on this device.</span></div><div className="theme-choice-group" role="group" aria-label="Color theme"><button type="button" className={`theme-choice-button ${theme === 'dark' ? 'selected' : ''}`} aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}><span aria-hidden="true">◐</span> Dark</button><button type="button" className={`theme-choice-button ${theme === 'light' ? 'selected' : ''}`} aria-pressed={theme === 'light'} onClick={() => setTheme('light')}><span aria-hidden="true">☼</span> Light</button></div></div>
+                  <label className="journal-timezone-setting"><span><strong>Journal timezone</strong><small>Controls the journal clock and new trade times. DST updates automatically.</small></span><select value={journalTimezone} onChange={handleJournalTimezoneChange} aria-label="Journal timezone">{[...new Set([journalTimezone, ...TIME_ZONE_OPTIONS])].map((timeZone) => <option key={timeZone} value={timeZone}>{timeZone.replaceAll('_', ' ').replaceAll('/', ' / ')}</option>)}</select></label>
+                  <p className="journal-timezone-status" role="status">{getUtcOffsetLabel(journalTimezone, journalClockNow)} now · {timezoneSyncMessage}</p>
+                </section>
+                <section className="panel-card settings-card pip-squeak-settings-card"><div className="panel-header"><h3>Pip Squeak</h3><p className="panel-sub">Choose whether your trading pal chimes in around CookurTrades.</p></div><div className="settings-row"><div><strong>Buddy messages</strong><span>Page quips, bottom pop-ups, and the rare calendar prank.</span></div><label className="pip-squeak-toggle"><input type="checkbox" checked={pipSqueakEnabled} onChange={(event) => setPipSqueakEnabled(event.target.checked)} aria-label="Enable Pip Squeak" /><span className="pip-squeak-toggle-track" aria-hidden="true"><span /></span><span className="pip-squeak-toggle-state">{pipSqueakEnabled ? 'On' : 'Off'}</span></label></div></section>
                 <section className="panel-card settings-card trade-defaults-card"><div className="panel-header"><h3>Trade Defaults</h3><p className="panel-sub">Prefill new trade forms with your usual details. You can still change them per trade.</p></div><div className="trade-defaults-grid"><label><span>Default asset</span><select value={tradeDefaults.instrument} onChange={(event) => setTradeDefaults({ ...tradeDefaults, instrument: event.target.value })}>{INSTRUMENT_PRESETS.map((group) => <optgroup label={group.category} key={group.category}>{group.assets.map((asset) => <option value={asset} key={asset}>{asset}</option>)}</optgroup>)}{customAssets.length > 0 && <optgroup label="Custom assets">{customAssets.map((asset) => <option value={asset} key={asset}>{asset}</option>)}</optgroup>}</select></label><label><span>Default direction</span><select value={tradeDefaults.direction} onChange={(event) => setTradeDefaults({ ...tradeDefaults, direction: event.target.value })}><option value="Long">Long</option><option value="Short">Short</option></select></label><label><span>Default setup</span><input type="text" value={tradeDefaults.setup} onChange={(event) => setTradeDefaults({ ...tradeDefaults, setup: event.target.value })} placeholder="e.g. 15m S/R" /></label><label><span>Default risk ($)</span><input type="number" min="0" step="any" value={tradeDefaults.risk} onChange={(event) => setTradeDefaults({ ...tradeDefaults, risk: event.target.value })} placeholder="Leave blank" /></label></div></section>
-                <section className="panel-card settings-card"><div className="panel-header"><h3>Account</h3><p className="panel-sub">Sign-in and cloud sync for your journal.</p></div>{session ? <><div className="settings-account-details"><span>Signed in as</span><strong>{session.user.email}</strong><span className={`cloud-sync-indicator ${cloudSyncState}`} role="status"><i aria-hidden="true" />{cloudSyncState === 'ready' ? 'Cloud synced' : cloudSyncState === 'loading' ? 'Syncing…' : cloudSyncState === 'error' ? 'Sync issue' : 'Local data'}</span></div>{cloudSyncMessage && <p className="settings-sync-message">{cloudSyncMessage}</p>}{cloudSyncReady && pendingLocalTrades.length > 0 && <button type="button" className="cloud-import-button" onClick={handleImportLocalTrades} disabled={cloudImportBusy}>{cloudImportBusy ? 'Importing…' : `Import ${pendingLocalTrades.length} local trades`}</button>}<button type="button" className="auth-header-button settings-signout-button" onClick={handleAuthSignOut}>Sign out</button></> : <div className="settings-signed-out"><p>You’re using ZeroTilt on this device. Sign in to sync your journal across devices.</p><button type="button" className="auth-header-button" onClick={() => openAuthModal('signin')}>Email sign in</button></div>}</section>
+                <section className="panel-card settings-card"><div className="panel-header"><h3>Account</h3><p className="panel-sub">Sign-in and cloud sync for your journal.</p></div>{session ? <><div className="settings-account-details"><span>Signed in as</span><strong>{session.user.email}</strong><span className={`cloud-sync-indicator ${cloudSyncState}`} role="status"><i aria-hidden="true" />{cloudSyncState === 'ready' ? 'Cloud synced' : cloudSyncState === 'loading' ? 'Syncing…' : cloudSyncState === 'error' ? 'Sync issue' : 'Local data'}</span></div>{cloudSyncMessage && <p className="settings-sync-message">{cloudSyncMessage}</p>}{cloudSyncReady && pendingLocalTrades.length > 0 && <button type="button" className="cloud-import-button" onClick={handleImportLocalTrades} disabled={cloudImportBusy}>{cloudImportBusy ? 'Importing…' : `Import ${pendingLocalTrades.length} local trades`}</button>}<button type="button" className="auth-header-button settings-signout-button" onClick={handleAuthSignOut}>Sign out</button></> : <div className="settings-signed-out"><p>You’re using CookurTrades on this device. Sign in to sync your journal across devices.</p><button type="button" className="auth-header-button" onClick={() => openAuthModal('signin')}>Email sign in</button></div>}</section>
                 <section className="panel-card settings-card"><div className="panel-header"><h3>Journal data</h3><p className="panel-sub">Download a copy of this profile from the Trades page.</p></div><button type="button" className="cal-btn" onClick={() => setActiveTab('trades')}>Go to exports <span aria-hidden="true">→</span></button></section>
               </div>
               <div className="settings-column">
                 <section className="panel-card settings-card custom-assets-card"><div className="panel-header"><h3>Custom assets</h3><p className="panel-sub">Add the symbols you trade. They’ll appear in the trade picker and Performance Lab filters.</p></div><form className="custom-asset-form" onSubmit={handleAddCustomAsset}><label className="sr-only" htmlFor="custom-asset-symbol">Custom asset symbol</label><input id="custom-asset-symbol" type="text" value={customAssetDraft} onChange={(event) => { setCustomAssetDraft(event.target.value); setCustomAssetError(''); }} placeholder="e.g. M2K, SOL/USD" maxLength={20} autoCapitalize="characters" /><button type="submit" className="cal-btn">Add asset</button></form>{customAssetError && <p className="custom-asset-error" role="alert">{customAssetError}</p>}<div className="custom-asset-list">{customAssets.length ? customAssets.map((symbol) => <div className="custom-asset-item" key={symbol}><span>{symbol}</span><button type="button" onClick={() => handleRemoveCustomAsset(symbol)} aria-label={`Remove ${symbol}`}>Remove</button></div>) : <p className="custom-asset-empty">No custom assets yet.</p>}</div></section>
                 <section className="panel-card settings-card"><div className="panel-header"><h3>Keyboard shortcuts</h3><p className="panel-sub">Little time-savers for your daily flow.</p></div><div className="shortcut-list"><div className="shortcut-row"><span>Quick add a trade</span><kbd>N</kbd></div><div className="shortcut-row"><span>Open the full trade form</span><kbd>Shift + N</kbd></div><div className="shortcut-row"><span>Search your trades</span><kbd>/</kbd></div><div className="shortcut-row"><span>Close the trade form</span><kbd>Esc</kbd></div></div></section>
                 <section className="panel-card settings-card"><div className="panel-header"><h3>Journal profiles</h3><p className="panel-sub">Keep personal, evaluation, and strategy journals organized.</p></div><div className="settings-row"><div><strong>{currentProfileObj.name}</strong><span>{profiles.length} {profiles.length === 1 ? 'profile' : 'profiles'} available</span></div><button type="button" className="cal-btn" onClick={() => setIsProfileModalOpen(true)}>Manage profiles</button></div></section>
-                <section className="panel-card settings-card pwa-install-card"><div className="panel-header"><h3>Install ZeroTilt</h3><p className="panel-sub">Keep your journal one tap away on your phone or desktop.</p></div><div className="settings-row"><div><strong>{isPwaInstalled ? 'App installed' : 'Add to your home screen'}</strong><span>Previously loaded screens can open offline; cloud sync needs internet.</span></div>{isPwaInstalled ? <span className="pwa-install-status">Installed</span> : deferredPwaInstall ? <button type="button" className="btn-primary pwa-install-button" onClick={handleInstallPwa}>Install app</button> : <span className="pwa-install-guidance">{/iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'Share → Add to Home Screen' : 'Use your browser menu → Install app'}</span>}</div></section>
+                <section className="panel-card settings-card pwa-install-card"><div className="panel-header"><h3>Install CookurTrades</h3><p className="panel-sub">Keep your journal one tap away on your phone or desktop.</p></div><div className="settings-row"><div><strong>{isPwaInstalled ? 'App installed' : 'Add to your home screen'}</strong><span>Previously loaded screens can open offline; cloud sync needs internet.</span></div>{isPwaInstalled ? <span className="pwa-install-status">Installed</span> : deferredPwaInstall ? <button type="button" className="btn-primary pwa-install-button" onClick={handleInstallPwa}>Install app</button> : <span className="pwa-install-guidance">{/iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'Share → Add to Home Screen' : 'Use your browser menu → Install app'}</span>}</div></section>
               </div>
             </div>
           </div>
@@ -2962,7 +3154,7 @@ function App() {
           <section className="modal-content auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <span className="modal-sub">ZEROTILT ACCOUNT</span>
+                <span className="modal-sub">COOKURTRADES ACCOUNT</span>
                 <h2 id="auth-modal-title">{authMode === 'signin' ? 'Welcome back' : authMode === 'recovery' ? 'Reset your password' : 'Create your account'}</h2>
               </div>
               <button type="button" className="close-btn" onClick={() => setIsAuthModalOpen(false)} aria-label="Close sign-in form">✕</button>
@@ -3153,8 +3345,8 @@ function App() {
             {quickAddMode && !formData.id ? (
               <form onSubmit={handleSubmit} onChange={() => setTradeFormTouched(true)} className="modal-form quick-trade-form">
                 <div className="form-row">
-                  <div className="form-group"><label>Date</label><input type="date" required value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} /></div>
-                  <div className="form-group"><label>Time</label><input type="time" required value={formData.time} onChange={(e) => setFormData({ ...formData, time: e.target.value })} /></div>
+                  <div className="form-group"><label>Date · {getTimeZoneCity(journalTimezone)}</label><input type="date" required value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value, timeZone: journalTimezone, _timestampChanged: true })} /></div>
+                  <div className="form-group"><label>Time · {getTimeZoneCity(journalTimezone)}</label><input type="time" required value={formData.time} onChange={(e) => setFormData({ ...formData, time: e.target.value, timeZone: journalTimezone, _timestampChanged: true })} /></div>
                 </div>
                 <div className="form-row">
                   <div className="form-group"><label>Asset</label><div className="instrument-field-control quick-asset-field"><input type="text" autoFocus required value={formData.instrument} onChange={(e) => setFormData({ ...formData, instrument: e.target.value })} placeholder="NQ, ES, BTC..." /><details className="instrument-picker"><summary aria-label="Choose a built-in or custom asset" title="Choose asset" /><div className="instrument-picker-menu"><div className="instrument-picker-heading">Choose an asset <span>{20 + customAssets.length} available</span></div>{[...INSTRUMENT_PRESETS, ...(customAssets.length ? [{ category: 'Custom', assets: customAssets }] : [])].map((group) => <div className="instrument-picker-group" key={group.category}><span className="instrument-group-label">{group.category}</span><div className="instrument-chip-list">{group.assets.map((asset) => <button type="button" key={asset} className={`instrument-chip ${formData.instrument === asset ? 'selected' : ''}`} aria-pressed={formData.instrument === asset} onClick={() => setFormData({ ...formData, instrument: asset })}>{asset}</button>)}</div></div>)}</div></details></div></div>
@@ -3170,20 +3362,20 @@ function App() {
             <form onSubmit={handleSubmit} onChange={() => setTradeFormTouched(true)} className="modal-form">
               <div className="form-row">
                 <div className="form-group">
-                  <label>Date</label>
+                  <label>Date · {getTimeZoneCity(journalTimezone)}</label>
                   <input
                     type="date"
                     value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value, timeZone: journalTimezone, _timestampChanged: true })}
                     required
                   />
                 </div>
                 <div className="form-group">
-                  <label>Time</label>
+                  <label>Time · {getTimeZoneCity(journalTimezone)}</label>
                   <input
                     type="time"
                     value={formData.time}
-                    onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, time: e.target.value, timeZone: journalTimezone, _timestampChanged: true })}
                     required
                   />
                 </div>
@@ -3611,7 +3803,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch((error) => {
-      console.warn('ZeroTilt could not register its offline app shell.', error);
+      console.warn('CookurTrades could not register its offline app shell.', error);
     });
   });
 }

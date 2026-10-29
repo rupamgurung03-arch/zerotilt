@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "ZeroTilt Trading Journal",
-  "short_name": "ZeroTilt",
+  "name": "CookurTrades Trading Journal",
+  "short_name": "CookurTrades",
   "description": "A focused trading journal for tracking trades, process, and performance.",
   "start_url": "/",
   "scope": "/",
