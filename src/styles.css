@@ -2813,3 +2813,105 @@ input:focus, select:focus, textarea:focus {
   .trade-lab-filters, .trade-lab-stats { grid-template-columns: 1fr; }
   .quick-form-footer > .btn-primary { width: 100%; min-height: 44px; }
 }
+
+
+/* Light theme form controls: keep tags and entry fields readable on pale surfaces. */
+:root[data-theme='light'] .psych-chip,
+:root[data-theme='light'] .mistake-chip {
+  color: #46514e;
+  background: #ffffff;
+  border-color: #c8d1cd;
+  box-shadow: 0 1px 2px rgba(35, 45, 42, 0.04);
+}
+:root[data-theme='light'] .psych-chip:hover {
+  color: #283a33;
+  border-color: #a57938;
+  background: #f7f3eb;
+}
+:root[data-theme='light'] .psych-chip.positive.active {
+  color: #285c45;
+  border-color: #8eb9a2;
+  background: #e5f1e9;
+}
+:root[data-theme='light'] .psych-chip.negative.active,
+:root[data-theme='light'] .mistake-chip.selected {
+  color: #873f3f;
+  border-color: #d3a0a0;
+  background: #f7e9e8;
+}
+:root[data-theme='light'] .mistake-chip:hover {
+  color: #873f3f;
+  border-color: #c98480;
+  background: #fbf1f0;
+}
+:root[data-theme='light'] input[type='text'],
+:root[data-theme='light'] input[type='number'],
+:root[data-theme='light'] input[type='date'],
+:root[data-theme='light'] input[type='time'],
+:root[data-theme='light'] select,
+:root[data-theme='light'] textarea {
+  background-color: #ffffff;
+  border-color: #c8d1cd;
+}
+:root[data-theme='light'] input::placeholder,
+:root[data-theme='light'] textarea::placeholder {
+  color: #75817d;
+  opacity: 1;
+}
+:root[data-theme='light'] input:focus,
+:root[data-theme='light'] select:focus,
+:root[data-theme='light'] textarea:focus {
+  border-color: #9b651e;
+  box-shadow: 0 0 0 3px rgba(155, 101, 30, 0.12);
+}
+
+
+/* Custom asset manager in Settings */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.custom-asset-form { display: flex; align-items: center; gap: 8px; }
+.custom-asset-form input { min-width: 0; flex: 1; text-transform: uppercase; }
+.custom-asset-form .cal-btn { flex: 0 0 auto; min-height: 40px; }
+.custom-asset-error { margin-top: 8px; color: var(--accent-red); font-size: 11px; }
+.custom-asset-list { display: grid; gap: 7px; margin-top: 12px; }
+.custom-asset-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-dark); }
+.custom-asset-item > span { color: var(--text-main); font: 600 11px var(--font-mono); }
+.custom-asset-item button { padding: 4px 7px; color: var(--text-dim); background: transparent; border: 1px solid transparent; border-radius: 6px; font: inherit; font-size: 10px; cursor: pointer; }
+.custom-asset-item button:hover { color: var(--accent-red); border-color: var(--accent-red-glow); background: var(--accent-red-glow); }
+.custom-asset-empty { color: var(--text-dim); font-size: 11px; }
+@media (max-width: 560px) { .custom-asset-form { align-items: stretch; flex-direction: column; } .custom-asset-form .cal-btn { width: 100%; justify-content: center; } }
+:root[data-theme='light'] .custom-asset-item { background: #fff; }
+
+
+/* Instrument quick-pick menu follows the active light palette. */
+:root[data-theme='light'] .instrument-picker-menu {
+  background: #f7f8f7;
+  border-color: #cbd3d0;
+  box-shadow: 0 12px 32px rgba(35, 45, 42, 0.16);
+}
+:root[data-theme='light'] .instrument-picker-heading { color: #293431; }
+:root[data-theme='light'] .instrument-picker-heading span { color: #64716d; }
+:root[data-theme='light'] .instrument-group-label { color: #626f6b; }
+:root[data-theme='light'] .instrument-chip,
+:root[data-theme='light'] .instrument-chip-list button {
+  color: #46514e;
+  background: #ffffff;
+  border-color: #c8d1cd;
+}
+:root[data-theme='light'] .instrument-chip:hover,
+:root[data-theme='light'] .instrument-chip.selected {
+  color: #80510f;
+  background: #f7eddc;
+  border-color: #b98535;
+}
+
+.quick-asset-field > input { min-height: 48px; }
+.quick-trade-form .form-group > input,
+.quick-trade-form .form-group > select { min-height: 48px; }
+.quick-asset-field .instrument-picker-menu { top: calc(100% + 8px); max-height: min(280px, calc(100vh - 360px)); }
+@media (max-width: 560px) { .quick-asset-field .instrument-picker-menu { width: min(400px, calc(100vw - 72px)); max-height: min(260px, calc(100dvh - 300px)); } }
+
+@media (max-width: 760px) {
+  .mc-settings-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .mc-setting-card { min-width: 0; padding: 16px; }
+  .mc-setting-card .setting-header { margin-bottom: 14px; }
+}

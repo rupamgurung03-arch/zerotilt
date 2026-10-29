@@ -26,6 +26,9 @@ const INSTRUMENT_PRESETS = [
   { category: 'Crypto', assets: ['BTC', 'ETH'] },
 ];
 
+const normalizeAssetSymbol = (value) => String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+const isValidAssetSymbol = (value) => /^[A-Z0-9][A-Z0-9._/ -]{0,19}$/.test(value);
+
 const DEFAULT_PROFILES = [
   { id: 'default', name: 'Main Account' },
 ];
@@ -380,6 +383,16 @@ function App() {
     document.documentElement.dataset.theme = savedTheme;
     return savedTheme;
   });
+  const [customAssets, setCustomAssets] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('zerotilt_custom_assets_v1') || '[]');
+      if (!Array.isArray(saved)) return [];
+      const presetSymbols = new Set(INSTRUMENT_PRESETS.flatMap((group) => group.assets).map((symbol) => normalizeAssetSymbol(symbol)));
+      return [...new Set(saved.map(normalizeAssetSymbol).filter((symbol) => isValidAssetSymbol(symbol) && !presetSymbols.has(symbol)))];
+    } catch { return []; }
+  });
+  const [customAssetDraft, setCustomAssetDraft] = useState('');
+  const [customAssetError, setCustomAssetError] = useState('');
   const [greeting, setGreeting] = useState(getLocalGreeting);
   const [equityChartType, setEquityChartType] = useState('line');
   const [bottomBuddyPopup, setBottomBuddyPopup] = useState('');
@@ -424,6 +437,22 @@ function App() {
   });
   const [tradePage, setTradePage] = useState(1);
   const [formData, setFormData] = useState(EMPTY_FORM);
+
+  const handleAddCustomAsset = (event) => {
+    event.preventDefault();
+    const symbol = normalizeAssetSymbol(customAssetDraft);
+    if (!symbol) { setCustomAssetError('Enter an asset symbol first.'); return; }
+    if (!isValidAssetSymbol(symbol)) { setCustomAssetError('Use up to 20 letters, numbers, spaces, dots, slashes, or hyphens.'); return; }
+    const existingSymbols = new Set([...INSTRUMENT_PRESETS.flatMap((group) => group.assets), ...customAssets].map(normalizeAssetSymbol));
+    if (existingSymbols.has(symbol)) { setCustomAssetError(`${symbol} is already in your asset list.`); return; }
+    setCustomAssets((current) => [...current, symbol]);
+    setCustomAssetDraft('');
+    setCustomAssetError('');
+  };
+
+  const handleRemoveCustomAsset = (symbolToRemove) => {
+    setCustomAssets((current) => current.filter((symbol) => symbol !== symbolToRemove));
+  };
 
   const showBottomBuddyPopup = (trigger) => {
     if (!pipSqueakEnabled || Math.random() >= 0.58) return;
@@ -527,6 +556,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem('tradelog_profiles', JSON.stringify(profiles));
   }, [profiles]);
+
+  useEffect(() => {
+    try { localStorage.setItem('zerotilt_custom_assets_v1', JSON.stringify(customAssets)); } catch { /* Keep symbols for this session if storage is unavailable. */ }
+  }, [customAssets]);
 
   useEffect(() => {
     localStorage.setItem('tradelog_active_profile', activeProfileId);
@@ -1639,6 +1672,7 @@ function App() {
 
   const tradeInstrumentOptions = [...new Set([
     ...INSTRUMENT_PRESETS.flatMap((group) => group.assets),
+    ...customAssets,
     ...trades.map((trade) => (trade.instrument || '').trim()).filter(Boolean),
   ])];
   const tradePsychologyOptions = [...new Set([
@@ -1821,9 +1855,9 @@ function App() {
           <button
             className={`nav-item ${activeTab === 'topdown' ? 'active' : ''}`}
             onClick={() => setActiveTab('topdown')}
-            title="Top Down Analysis"
+            title="Your Analysis"
           >
-            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M8 10.5h5M10.5 8v5"/></svg></span><span className="nav-label">Top Down Analysis</span>
+            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M8 10.5h5M10.5 8v5"/></svg></span><span className="nav-label">Your Analysis</span>
           </button>
           <button
             className={`nav-item ${activeTab === 'simulator' ? 'active' : ''}`}
@@ -1849,7 +1883,7 @@ function App() {
               {activeTab === 'dashboard' && greeting}
               {activeTab === 'calendar' && 'Performance Calendar'}
               {activeTab === 'trades' && 'Performance Lab'}
-              {activeTab === 'topdown' && 'Top Down Analysis'}
+              {activeTab === 'topdown' && 'Your Analysis'}
               {activeTab === 'simulator' && 'Prop Firm Monte Carlo Engine'}
               {activeTab === 'settings' && 'Settings'}
             </h1>
@@ -2429,7 +2463,7 @@ function App() {
           <div className="top-down-page">
             <section className="panel-card top-down-intro">
               <div>
-                <h3>Top Down Analysis Cards</h3>
+                <h3>Your Analysis Cards</h3>
                 <p className="panel-sub">Save a dated market view with your own timeframe, chart screenshot, links, and description. Cards are saved for this profile in this browser.</p>
               </div>
               <div className="top-down-create-controls">
@@ -2863,6 +2897,7 @@ function App() {
           <div className="settings-page">
             <div className="settings-grid">
               <section className="panel-card settings-card"><div className="panel-header"><h3>Appearance</h3><p className="panel-sub">Choose the look that feels right for your session.</p></div><div className="settings-row"><div><strong>Color theme</strong><span>Saved automatically on this device.</span></div><div className="theme-choice-group" role="group" aria-label="Color theme"><button type="button" className={`theme-choice-button ${theme === 'dark' ? 'selected' : ''}`} aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}><span aria-hidden="true">◐</span> Dark</button><button type="button" className={`theme-choice-button ${theme === 'light' ? 'selected' : ''}`} aria-pressed={theme === 'light'} onClick={() => setTheme('light')}><span aria-hidden="true">☼</span> Light</button></div></div></section>
+              <section className="panel-card settings-card custom-assets-card"><div className="panel-header"><h3>Custom assets</h3><p className="panel-sub">Add the symbols you trade. They’ll appear in the trade picker and Performance Lab filters.</p></div><form className="custom-asset-form" onSubmit={handleAddCustomAsset}><label className="sr-only" htmlFor="custom-asset-symbol">Custom asset symbol</label><input id="custom-asset-symbol" type="text" value={customAssetDraft} onChange={(event) => { setCustomAssetDraft(event.target.value); setCustomAssetError(''); }} placeholder="e.g. M2K, SOL/USD" maxLength={20} autoCapitalize="characters" /><button type="submit" className="cal-btn">Add asset</button></form>{customAssetError && <p className="custom-asset-error" role="alert">{customAssetError}</p>}<div className="custom-asset-list">{customAssets.length ? customAssets.map((symbol) => <div className="custom-asset-item" key={symbol}><span>{symbol}</span><button type="button" onClick={() => handleRemoveCustomAsset(symbol)} aria-label={`Remove ${symbol}`}>Remove</button></div>) : <p className="custom-asset-empty">No custom assets yet.</p>}</div></section>
               <section className="panel-card settings-card pip-squeak-settings-card"><div className="panel-header"><h3>Pip Squeak</h3><p className="panel-sub">Choose whether your trading pal chimes in around ZeroTilt.</p></div><div className="settings-row"><div><strong>Buddy messages</strong><span>Page quips, bottom pop-ups, and the rare calendar prank.</span></div><label className="pip-squeak-toggle"><input type="checkbox" checked={pipSqueakEnabled} onChange={(event) => setPipSqueakEnabled(event.target.checked)} aria-label="Enable Pip Squeak" /><span className="pip-squeak-toggle-track" aria-hidden="true"><span /></span><span className="pip-squeak-toggle-state">{pipSqueakEnabled ? 'On' : 'Off'}</span></label></div></section>
               <section className="panel-card settings-card"><div className="panel-header"><h3>Keyboard shortcuts</h3><p className="panel-sub">Little time-savers for your daily flow.</p></div><div className="shortcut-list"><div className="shortcut-row"><span>Quick add a trade</span><kbd>N</kbd></div><div className="shortcut-row"><span>Open the full trade form</span><kbd>Shift + N</kbd></div><div className="shortcut-row"><span>Search your trades</span><kbd>/</kbd></div><div className="shortcut-row"><span>Close the trade form</span><kbd>Esc</kbd></div></div></section>
               <section className="panel-card settings-card"><div className="panel-header"><h3>Account</h3><p className="panel-sub">Sign-in and cloud sync for your journal.</p></div>{session ? <><div className="settings-account-details"><span>Signed in as</span><strong>{session.user.email}</strong><span className={`cloud-sync-indicator ${cloudSyncState}`} role="status"><i aria-hidden="true" />{cloudSyncState === 'ready' ? 'Cloud synced' : cloudSyncState === 'loading' ? 'Syncing…' : cloudSyncState === 'error' ? 'Sync issue' : 'Local data'}</span></div>{cloudSyncMessage && <p className="settings-sync-message">{cloudSyncMessage}</p>}{cloudSyncReady && pendingLocalTrades.length > 0 && <button type="button" className="cloud-import-button" onClick={handleImportLocalTrades} disabled={cloudImportBusy}>{cloudImportBusy ? 'Importing…' : `Import ${pendingLocalTrades.length} local trades`}</button>}<button type="button" className="auth-header-button settings-signout-button" onClick={handleAuthSignOut}>Sign out</button></> : <div className="settings-signed-out"><p>You’re using ZeroTilt on this device. Sign in to sync your journal across devices.</p><button type="button" className="auth-header-button" onClick={() => openAuthModal('signin')}>Email sign in</button></div>}</section>
@@ -3074,12 +3109,12 @@ function App() {
                   <div className="form-group"><label>Time</label><input type="time" required value={formData.time} onChange={(e) => setFormData({ ...formData, time: e.target.value })} /></div>
                 </div>
                 <div className="form-row">
-                  <div className="form-group"><label>Asset</label><input autoFocus required value={formData.instrument} onChange={(e) => setFormData({ ...formData, instrument: e.target.value })} placeholder="NQ, ES, BTC..." /></div>
+                  <div className="form-group"><label>Asset</label><div className="instrument-field-control quick-asset-field"><input type="text" autoFocus required value={formData.instrument} onChange={(e) => setFormData({ ...formData, instrument: e.target.value })} placeholder="NQ, ES, BTC..." /><details className="instrument-picker"><summary aria-label="Choose a built-in or custom asset" title="Choose asset" /><div className="instrument-picker-menu"><div className="instrument-picker-heading">Choose an asset <span>{20 + customAssets.length} available</span></div>{[...INSTRUMENT_PRESETS, ...(customAssets.length ? [{ category: 'Custom', assets: customAssets }] : [])].map((group) => <div className="instrument-picker-group" key={group.category}><span className="instrument-group-label">{group.category}</span><div className="instrument-chip-list">{group.assets.map((asset) => <button type="button" key={asset} className={`instrument-chip ${formData.instrument === asset ? 'selected' : ''}`} aria-pressed={formData.instrument === asset} onClick={() => setFormData({ ...formData, instrument: asset })}>{asset}</button>)}</div></div>)}</div></details></div></div>
                   <div className="form-group"><label>Direction</label><select value={formData.direction} onChange={(e) => setFormData({ ...formData, direction: e.target.value })}><option>Long</option><option>Short</option></select></div>
                 </div>
                 <div className="form-row">
                   <div className="form-group"><label>Result (R)</label><input type="number" step="any" required value={formData.resultR} onChange={(e) => setFormData({ ...formData, resultR: e.target.value })} placeholder="e.g. 1.5 or -1" /></div>
-                  <div className="form-group"><label>Setup <span className="mistake-optional-label">Optional</span></label><input value={formData.setup} onChange={(e) => setFormData({ ...formData, setup: e.target.value })} placeholder="e.g. 15m S/R" /></div>
+                  <div className="form-group"><label>Setup <span className="mistake-optional-label">Optional</span></label><input type="text" value={formData.setup} onChange={(e) => setFormData({ ...formData, setup: e.target.value })} placeholder="e.g. 15m S/R" /></div>
                 </div>
                 <div className="quick-form-footer"><span>More detail can be added later by editing the trade.</span><button type="submit" className="btn-primary">Save quick trade</button></div>
               </form>
@@ -3120,8 +3155,8 @@ function App() {
                     <details className="instrument-picker">
                       <summary aria-label="Expand quick-pick instruments" title="Quick-pick instruments" />
                       <div className="instrument-picker-menu">
-                        <div className="instrument-picker-heading">Quick-pick instruments <span>20 assets · Selected: {formData.instrument || 'Custom'}</span></div>
-                        {INSTRUMENT_PRESETS.map((group) => (
+                        <div className="instrument-picker-heading">Quick-pick instruments <span>{20 + customAssets.length} assets · Selected: {formData.instrument || 'Custom'}</span></div>
+                        {[...INSTRUMENT_PRESETS, ...(customAssets.length ? [{ category: 'Custom', assets: customAssets }] : [])].map((group) => (
                           <div className="instrument-picker-group" key={group.category}>
                             <span className="instrument-group-label">{group.category}</span>
                             <div className="instrument-chip-list">
@@ -3373,7 +3408,7 @@ function App() {
           <section className="modal-content top-down-card-modal" role="dialog" aria-modal="true" aria-labelledby="top-down-card-modal-title" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <span className="modal-sub">TOP DOWN ANALYSIS · {currentProfileObj.name}</span>
+                <span className="modal-sub">YOUR ANALYSIS · {currentProfileObj.name}</span>
                 <h2 id="top-down-card-modal-title">{topDownCardForm.id ? 'Edit analysis card' : 'Create analysis card'}</h2>
               </div>
               <button type="button" className="close-btn" onClick={() => setIsTopDownCardModalOpen(false)} aria-label="Close analysis card form">✕</button>
