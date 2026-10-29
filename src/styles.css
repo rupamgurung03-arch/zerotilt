@@ -2923,3 +2923,11 @@ input:focus, select:focus, textarea:focus {
   .mc-page-header .panel-sub { max-width: none; }
   .mc-page-header > button { width: 100%; min-height: 46px; justify-content: center; white-space: normal; line-height: 1.3; }
 }
+
+/* Settings masonry-style columns keep card gaps even when cards have different heights. */
+.settings-column { display: grid; min-width: 0; align-content: start; gap: 16px; }
+.trade-defaults-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.trade-defaults-grid label { display: grid; min-width: 0; gap: 6px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.trade-defaults-grid input,
+.trade-defaults-grid select { min-height: 42px; }
+@media (max-width: 420px) { .trade-defaults-grid { grid-template-columns: 1fr; } }
