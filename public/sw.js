@@ -1,5 +1,5 @@
-const CACHE_NAME = 'zerotilt-shell-v1';
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icons/zerotilt.svg', '/icons/icon-192.png', '/icons/icon-512.png'];
+const CACHE_NAME = 'cookurtrades-shell-v2';
+const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icons/cookurtrades-mark.svg', '/icons/cookurtrades-app.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -23,7 +23,7 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith('zerotilt-shell-') && key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => (key.startsWith('zerotilt-shell-') || key.startsWith('cookurtrades-shell-')) && key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (event) => {

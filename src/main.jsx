@@ -2008,7 +2008,7 @@ function App() {
       {/* Sidebar Navigation & Profile Selector */}
       <aside className="sidebar">
         <div className="brand">
-          <span className="dot"></span>
+          <img className="brand-mark" src="/icons/cookurtrades-mark.svg" alt="" />
           <div className="brand-copy">
             <h2 className="brand-title">CookurTrades</h2>
             <p className="brand-sub">Personal Journal</p>
