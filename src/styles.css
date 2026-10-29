@@ -791,6 +791,11 @@ option {
 }
 
 .instrument-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   background: rgba(245, 158, 11, 0.12);
   color: var(--accent-amber);
   border: 1px solid rgba(245, 158, 11, 0.25);
@@ -799,6 +804,9 @@ option {
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .trade-info {
@@ -907,8 +915,8 @@ option {
 }
 
 .calendar-day-modal .trades-list {
-  max-height: 55vh;
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
   padding-right: 4px;
 }
 
@@ -925,6 +933,15 @@ option {
   gap: 12px;
   margin-left: 6px;
   flex-shrink: 0;
+}
+
+.calendar-trade-row > .instrument-badge {
+  flex: 0 1 auto;
+  max-width: min(110px, 24%);
+}
+
+.day-trades-pagination {
+  margin: 4px 0 12px;
 }
 
 .cal-date-num {
@@ -1719,13 +1736,20 @@ option {
 
 .journal-day-trade {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto 90px;
+  grid-template-columns: minmax(0, 80px) minmax(0, 1fr) auto 90px;
   align-items: center;
   gap: 10px;
   padding: 9px;
   background: #151c2b;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
+}
+
+.journal-day-trade > .instrument-badge {
+  justify-self: start;
+  max-width: 100%;
+  padding-inline: 5px;
+  font-size: 11px;
 }
 
 .journal-day-trade-info {

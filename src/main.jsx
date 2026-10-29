@@ -378,11 +378,17 @@ function App() {
   const [selectedDayTrades, setSelectedDayTrades] = useState(null);
   const [currentDate, setCurrentDate] = useState(new Date(2026, 9, 1));
   const [dashboardSelectedDate, setDashboardSelectedDate] = useState('');
+  const [dashboardTradePage, setDashboardTradePage] = useState(1);
+  const [selectedDayTradePage, setSelectedDayTradePage] = useState(1);
   const [reviewedNoSetupDisplay, setReviewedNoSetupDisplay] = useState({ profileId: '', date: '', reviewed: false });
   const [searchTerm, setSearchTerm] = useState('');
   const [tradeFilters, setTradeFilters] = useState({ instrument: 'all', psychology: 'all', direction: 'all', mistake: 'all', timeOfDay: 'all', period: 'all' });
   const [tradePage, setTradePage] = useState(1);
   const [formData, setFormData] = useState(EMPTY_FORM);
+
+  useEffect(() => {
+    setSelectedDayTradePage(1);
+  }, [selectedDayTrades?.dateStr]);
 
   useEffect(() => {
     const greetingTimer = setInterval(() => setGreeting(getLocalGreeting()), 60_000);
@@ -1316,6 +1322,7 @@ function App() {
 
   const changeMonth = (delta) => {
     setCurrentDate(new Date(year, month + delta, 1));
+    setDashboardTradePage(1);
   };
 
   const handleNoSetupReviewToggle = (date) => {
@@ -1345,6 +1352,10 @@ function App() {
     ? dashboardSelectedDate
     : dashboardDefaultDate;
   const dashboardReviewTrades = (tradesByDate[dashboardReviewDate] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const dailyTradesPerPage = 5;
+  const dashboardTradePages = Math.max(1, Math.ceil(dashboardReviewTrades.length / dailyTradesPerPage));
+  const currentDashboardTradePage = Math.min(dashboardTradePage, dashboardTradePages);
+  const paginatedDashboardTrades = dashboardReviewTrades.slice((currentDashboardTradePage - 1) * dailyTradesPerPage, currentDashboardTradePage * dailyTradesPerPage);
   const noSetupReviewedForCalendarDate = dashboardReviewDate === todayKey && (
     reviewedNoSetupDisplay.profileId === activeProfileId && reviewedNoSetupDisplay.date === todayKey
       ? reviewedNoSetupDisplay.reviewed
@@ -1386,6 +1397,9 @@ function App() {
   const selectedDayTradeList = selectedDayTrades
     ? trades.filter((trade) => trade.date === selectedDayTrades.dateStr).sort((a, b) => (a.time || '').localeCompare(b.time || ''))
     : [];
+  const selectedDayTradePages = Math.max(1, Math.ceil(selectedDayTradeList.length / dailyTradesPerPage));
+  const currentSelectedDayTradePage = Math.min(selectedDayTradePage, selectedDayTradePages);
+  const paginatedSelectedDayTrades = selectedDayTradeList.slice((currentSelectedDayTradePage - 1) * dailyTradesPerPage, currentSelectedDayTradePage * dailyTradesPerPage);
 
   const tradeInstrumentOptions = [...new Set([
     ...INSTRUMENT_PRESETS.flatMap((group) => group.assets),
@@ -1824,7 +1838,7 @@ function App() {
                   <h2>{monthNames[month]} {year}</h2>
                   <div className="calendar-controls">
                     <button onClick={() => changeMonth(-1)} className="cal-btn" aria-label="Previous month">◄</button>
-                    <button onClick={() => { setCurrentDate(new Date()); setDashboardSelectedDate(todayKey); }} className="cal-btn">Today</button>
+                    <button onClick={() => { setCurrentDate(new Date()); setDashboardSelectedDate(todayKey); setDashboardTradePage(1); }} className="cal-btn">Today</button>
                     <button onClick={() => changeMonth(1)} className="cal-btn" aria-label="Next month">►</button>
                   </div>
                 </div>
@@ -1842,7 +1856,7 @@ function App() {
                         type="button"
                         key={dateStr}
                         className={`review-calendar-day ${tone} ${selected ? 'selected' : ''}`}
-                        onClick={() => setDashboardSelectedDate(dateStr)}
+                        onClick={() => { setDashboardSelectedDate(dateStr); setDashboardTradePage(1); }}
                         aria-pressed={selected}
                         aria-label={`${dateStr}${dayData ? `, ${dayData.totalR >= 0 ? 'plus ' : 'minus '}${Math.abs(dayData.totalR).toFixed(1)} R, ${dayData.trades.length} trades` : ', no logged trades'}`}
                       >
@@ -1866,13 +1880,14 @@ function App() {
                   </strong>
                 </div>
                 {dashboardReviewTrades.length > 0 ? (
+                  <>
                   <div className="journal-day-trade-list">
-                    {dashboardReviewTrades.map((trade) => (
+                    {paginatedDashboardTrades.map((trade) => (
                       <div className="journal-day-trade" key={trade.id}>
                         <span className="instrument-badge">{trade.instrument}</span>
                         <div className="journal-day-trade-info">
-                          <strong>{trade.setup || `${trade.direction} trade`}</strong>
-                          <small>{trade.time} · {trade.direction}{(trade.mistakes || []).length ? ` · ${(trade.mistakes || []).join(', ')}` : ''}</small>
+                          <strong>{trade.setup || 'Trade entry'}</strong>
+                          <small>{trade.time || 'Time not set'}{(trade.mistakes || []).length ? ` · ${(trade.mistakes || []).join(', ')}` : ''}</small>
                           {(safeExternalUrl(trade.plannedTradingViewUrl) || safeExternalUrl(trade.tradingViewUrl)) && (
                             <div className="journal-day-trade-links">
                               {safeExternalUrl(trade.plannedTradingViewUrl) && <a href={safeExternalUrl(trade.plannedTradingViewUrl)} target="_blank" rel="noopener noreferrer">Plan chart ↗</a>}
@@ -1889,6 +1904,16 @@ function App() {
                       </div>
                     ))}
                   </div>
+                  {dashboardReviewTrades.length > dailyTradesPerPage && (
+                    <div className="trades-pagination day-trades-pagination" aria-label="Daily trade pages">
+                      <span>Page {currentDashboardTradePage} of {dashboardTradePages} · {dashboardReviewTrades.length} trades</span>
+                      <div>
+                        <button className="cal-btn" type="button" disabled={currentDashboardTradePage <= 1} onClick={() => setDashboardTradePage((page) => Math.max(1, page - 1))}>← Previous</button>
+                        <button className="cal-btn" type="button" disabled={currentDashboardTradePage >= dashboardTradePages} onClick={() => setDashboardTradePage((page) => Math.min(dashboardTradePages, page + 1))}>Next →</button>
+                      </div>
+                    </div>
+                  )}
+                  </>
                 ) : (
                   <>
                     <div className="journal-empty-day">No trades logged for this date.</div>
@@ -2677,12 +2702,13 @@ function App() {
             </div>
 
             {selectedDayTradeList.length > 0 ? (
+              <>
               <div className="trades-list mb-6">
-                {selectedDayTradeList.map((trade) => (
+                {paginatedSelectedDayTrades.map((trade) => (
                   <div className="trade-row calendar-trade-row" key={trade.id}>
                     <span className="instrument-badge">{trade.instrument}</span>
                     <div className="trade-info">
-                      <div className="trade-title">{trade.direction} · {trade.setup || 'Trade entry'}</div>
+                      <div className="trade-title">{trade.setup || 'Trade entry'}</div>
                       <div className="trade-meta">{trade.time || 'Time not set'}{trade.notes ? ` · ${trade.notes}` : ''}</div>
                     </div>
                     <span className={`trade-result ${trade.resultR >= 0 ? 'text-green' : 'text-red'}`}>
@@ -2702,6 +2728,16 @@ function App() {
                   </div>
                 ))}
               </div>
+              {selectedDayTradeList.length > dailyTradesPerPage && (
+                <div className="trades-pagination day-trades-pagination" aria-label="Daily trade pages">
+                  <span>Page {currentSelectedDayTradePage} of {selectedDayTradePages} · {selectedDayTradeList.length} trades</span>
+                  <div>
+                    <button className="cal-btn" type="button" disabled={currentSelectedDayTradePage <= 1} onClick={() => setSelectedDayTradePage((page) => Math.max(1, page - 1))}>← Previous</button>
+                    <button className="cal-btn" type="button" disabled={currentSelectedDayTradePage >= selectedDayTradePages} onClick={() => setSelectedDayTradePage((page) => Math.min(selectedDayTradePages, page + 1))}>Next →</button>
+                  </div>
+                </div>
+              )}
+              </>
             ) : (
               <p className="panel-sub mb-6">No trades logged for this date.</p>
             )}
