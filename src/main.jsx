@@ -356,7 +356,8 @@ function App() {
 
   // --- Trade Data per Profile ---
   const [trades, setTrades] = useState([]);
-  const [tradesProfileId, setTradesProfileId] = useState(activeProfileId);
+  const [tradesProfileId, setTradesProfileId] = useState('');
+  const [tradesStorageScope, setTradesStorageScope] = useState('');
   const [topDownState, setTopDownState] = useState(() => {
     const profileId = localStorage.getItem('tradelog_active_profile') || 'default';
     return { profileId, data: {} };
@@ -563,12 +564,23 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem('tradelog_active_profile', activeProfileId);
-    if (session?.user?.id) {
-      setTradesProfileId(activeProfileId);
-      return;
-    }
+    setTradesProfileId('');
+    setTradesStorageScope('');
     setTrades([]);
+    setPendingLocalTrades([]);
+    if (session?.user?.id) return;
+
+    setCloudSyncReady(false);
+    setCloudSyncState('local');
+    setCloudSyncMessage('');
+    try {
+      const savedGuestTrades = JSON.parse(localStorage.getItem(`zerotilt_guest_trades_${activeProfileId}`) || '[]');
+      setTrades(Array.isArray(savedGuestTrades) ? savedGuestTrades.filter((trade) => !isDemoTrade(trade)) : []);
+    } catch {
+      setTrades([]);
+    }
     setTradesProfileId(activeProfileId);
+    setTradesStorageScope(`guest:${activeProfileId}`);
   }, [activeProfileId, session?.user?.id]);
 
   // Keep trade search and filters with the selected journal profile.
@@ -591,11 +603,21 @@ function App() {
     } catch { /* Search still works when browser storage is unavailable. */ }
   }, [tradeFilters, searchTerm, activeProfileId]);
 
-  // Save trades specific to current profile
+  // Keep browser recovery data separate for each guest journal and signed-in account.
   useEffect(() => {
-    if (!session?.user?.id || tradesProfileId !== activeProfileId) return;
-    localStorage.setItem(`tradelog_trades_${activeProfileId}`, JSON.stringify(trades));
-  }, [trades, activeProfileId, tradesProfileId, session?.user?.id]);
+    const expectedScope = session?.user?.id ? `user:${session.user.id}:${activeProfileId}` : `guest:${activeProfileId}`;
+    if (tradesProfileId !== activeProfileId || tradesStorageScope !== expectedScope) return;
+    const storageKey = session?.user?.id
+      ? `tradelog_account_trades_${session.user.id}_${activeProfileId}`
+      : `zerotilt_guest_trades_${activeProfileId}`;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(trades));
+    } catch (error) {
+      setCloudSyncMessage(error?.name === 'QuotaExceededError'
+        ? 'This browser is low on storage. Remove old screenshots or export your journal data.'
+        : 'Could not save a local backup in this browser.');
+    }
+  }, [trades, activeProfileId, tradesProfileId, tradesStorageScope, session?.user?.id]);
 
   // Load and merge this profile's rows through the signed-in user's RLS policies.
   useEffect(() => {
@@ -616,18 +638,27 @@ function App() {
       setPendingLocalTrades([]);
       let localTradesForFallback = [];
       try {
-        const localText = localStorage.getItem(`tradelog_trades_${activeProfileId}`);
+        const accountCacheKey = `tradelog_account_trades_${userId}_${activeProfileId}`;
         const localBackupKey = `tradelog_trades_local_backup_${userId}_${activeProfileId}`;
-        const storedLocalTrades = localText ? JSON.parse(localText) : [];
+        const guestTradesKey = `zerotilt_guest_trades_${activeProfileId}`;
+        const guestOwnerKey = `zerotilt_guest_owner_${activeProfileId}`;
+        const accountCache = JSON.parse(localStorage.getItem(accountCacheKey) || '[]');
         const storedBackupTrades = JSON.parse(localStorage.getItem(localBackupKey) || '[]');
-        const localArray = Array.isArray(storedLocalTrades) ? storedLocalTrades : [];
+        const storedGuestTrades = JSON.parse(localStorage.getItem(guestTradesKey) || '[]');
+        const accountCacheArray = Array.isArray(accountCache) ? accountCache : [];
         const backupArray = Array.isArray(storedBackupTrades) ? storedBackupTrades : [];
-        const currentLocalTrades = localArray.filter((trade) => !isDemoTrade(trade));
+        const guestArray = Array.isArray(storedGuestTrades) ? storedGuestTrades : [];
+        const guestOwnerId = localStorage.getItem(guestOwnerKey);
+        const canUseGuestTrades = !guestOwnerId || guestOwnerId === userId;
+        if (!guestOwnerId && guestArray.length) localStorage.setItem(guestOwnerKey, userId);
+        const currentLocalTrades = accountCacheArray.filter((trade) => !isDemoTrade(trade));
         const backupLocalTrades = backupArray.filter((trade) => !isDemoTrade(trade));
-        if (currentLocalTrades.length !== localArray.length) localStorage.setItem(`tradelog_trades_${activeProfileId}`, JSON.stringify(currentLocalTrades));
+        const availableGuestTrades = canUseGuestTrades ? guestArray.filter((trade) => !isDemoTrade(trade)) : [];
+        if (currentLocalTrades.length !== accountCacheArray.length) localStorage.setItem(accountCacheKey, JSON.stringify(currentLocalTrades));
         if (backupLocalTrades.length !== backupArray.length) localStorage.setItem(localBackupKey, JSON.stringify(backupLocalTrades));
+        if (canUseGuestTrades && availableGuestTrades.length !== guestArray.length) localStorage.setItem(guestTradesKey, JSON.stringify(availableGuestTrades));
         const localById = new Map();
-        [...(Array.isArray(currentLocalTrades) ? currentLocalTrades : []), ...(Array.isArray(backupLocalTrades) ? backupLocalTrades : [])]
+        [...currentLocalTrades, ...backupLocalTrades, ...availableGuestTrades]
           .forEach((trade) => localById.set(String(trade._localTradeId || trade.id), trade));
         const localTrades = [...localById.values()];
         localTradesForFallback = localTrades;
@@ -661,14 +692,15 @@ function App() {
         const cloudLocalIds = new Set(cloudTrades.map((trade) => String(trade._localTradeId || trade.id)));
         const localOnlyTrades = localTrades.filter((trade) => !cloudLocalIds.has(String(trade._localTradeId || trade.id)));
         if (cancelled) return;
-        if (cloudTrades.length && localOnlyTrades.length) {
-          localStorage.setItem(localBackupKey, JSON.stringify(localOnlyTrades));
+        if (cloudTrades.length) {
+          if (localOnlyTrades.length) localStorage.setItem(localBackupKey, JSON.stringify(localOnlyTrades));
           setTrades(cloudTrades);
         } else {
           setTrades(localTrades);
         }
         setPendingLocalTrades(localOnlyTrades);
         setTradesProfileId(activeProfileId);
+        setTradesStorageScope(`user:${userId}:${activeProfileId}`);
         setCloudSyncReady(true);
         setCloudSyncState('ready');
         setCloudSyncMessage(cloudTrades.length
@@ -678,6 +710,7 @@ function App() {
         if (cancelled) return;
         setTrades(localTradesForFallback);
         setTradesProfileId(activeProfileId);
+        setTradesStorageScope(`user:${userId}:${activeProfileId}`);
         setCloudSyncReady(false);
         setCloudSyncState('error');
         setCloudSyncMessage(localTradesForFallback.length
@@ -1384,14 +1417,8 @@ function App() {
   const handleAuthSignOut = async () => {
     const userId = session?.user?.id;
     if (userId) {
-      const tradeBackupKey = `tradelog_trades_local_backup_${userId}_${activeProfileId}`;
-      const savedBackup = JSON.parse(localStorage.getItem(tradeBackupKey) || '[]');
-      const savedProfileTrades = JSON.parse(localStorage.getItem(`tradelog_trades_${activeProfileId}`) || '[]');
-      const tradesById = new Map();
-      [...savedBackup, ...savedProfileTrades, ...trades].filter((trade) => !isDemoTrade(trade)).forEach((trade) => {
-        tradesById.set(String(trade._localTradeId || trade.id), trade);
-      });
-      localStorage.setItem(tradeBackupKey, JSON.stringify([...tradesById.values()]));
+      const accountCacheKey = `tradelog_account_trades_${userId}_${activeProfileId}`;
+      try { localStorage.setItem(accountCacheKey, JSON.stringify(trades.filter((trade) => !isDemoTrade(trade)))); } catch { /* Cloud data remains available when browser storage is full. */ }
       localStorage.setItem(`tradelog_topdown_${userId}_${activeProfileId}`, JSON.stringify(topDownState.data));
     }
     const { error } = await signOut();
@@ -1402,7 +1429,8 @@ function App() {
     }
     localStorage.removeItem(`tradelog_trades_${activeProfileId}`);
     localStorage.removeItem(`tradelog_topdown_${activeProfileId}`);
-    setTrades([]);
+    setTradesProfileId('');
+    setTradesStorageScope('');
     setTopDownState({ profileId: activeProfileId, data: {} });
     setSession(null);
   };
@@ -1426,6 +1454,12 @@ function App() {
       ]);
       setPendingLocalTrades([]);
       localStorage.removeItem(`tradelog_trades_local_backup_${session.user.id}_${activeProfileId}`);
+      const guestOwnerKey = `zerotilt_guest_owner_${activeProfileId}`;
+      const guestOwnerId = localStorage.getItem(guestOwnerKey);
+      if (!guestOwnerId || guestOwnerId === session.user.id) {
+        localStorage.removeItem(`zerotilt_guest_trades_${activeProfileId}`);
+        localStorage.removeItem(guestOwnerKey);
+      }
       setCloudSyncState('ready');
       setCloudSyncMessage(`${importedTrades.length} local trade${importedTrades.length === 1 ? '' : 's'} imported to your account.`);
     } catch (error) {
@@ -2513,7 +2547,7 @@ function App() {
         {/* MONTE CARLO TAB */}
         {activeTab === 'simulator' && (
           <div className="panel-card">
-            <div className="panel-header space-between">
+            <div className="panel-header space-between mc-page-header">
               <div>
                 <h3>Prop Firm Challenge & Funded Simulator</h3>
                 <p className="panel-sub">

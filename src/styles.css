@@ -2915,3 +2915,11 @@ input:focus, select:focus, textarea:focus {
   .mc-setting-card { min-width: 0; padding: 16px; }
   .mc-setting-card .setting-header { margin-bottom: 14px; }
 }
+
+@media (max-width: 760px) {
+  .mc-page-header { align-items: stretch; flex-direction: column; gap: 14px; }
+  .mc-page-header > div { width: 100%; min-width: 0; }
+  .mc-page-header h3 { max-width: none; line-height: 1.25; overflow-wrap: normal; }
+  .mc-page-header .panel-sub { max-width: none; }
+  .mc-page-header > button { width: 100%; min-height: 46px; justify-content: center; white-space: normal; line-height: 1.3; }
+}
